@@ -3,6 +3,9 @@ package spark.jobserver.util
 import java.util.Map.Entry
 import java.lang.ref.SoftReference
 
+import org.slf4j.LoggerFactory
+import spark.jobserver.JobServer._
+
 /**
  * A convenience class to define a Least-Recently-Used Cache with a maximum size.
  * The oldest entries by time of last access will be removed when the number of entries exceeds
@@ -11,6 +14,7 @@ import java.lang.ref.SoftReference
  * @see LinkedHashMap
  */
 class LRUCache[K, V](cacheSize: Int, loadingFactor: Float  = 0.75F) {
+  val logger = LoggerFactory.getLogger(getClass)
 
   private val cache = {
     val initialCapacity = math.ceil(cacheSize / loadingFactor).toInt + 1
@@ -32,11 +36,13 @@ class LRUCache[K, V](cacheSize: Int, loadingFactor: Float  = 0.75F) {
   def get(k: K, v: => V): V = {
     cache.get(k) match {
       case null =>
+        logger.info(s"LRUCache MISS for $k")
         val evaluatedV = v
         cache.put(k, evaluatedV)
         cacheMiss += 1
         evaluatedV
       case vv =>
+        logger.info(s"LRUCache HIT for $k")
         cacheHit += 1
         vv
     }

@@ -24,12 +24,12 @@ class JobCache(maxEntries: Int, dao: JobDAO, sparkContext: SparkContext, loader:
    * @param classPath the fully qualified name of the class/object to load
    */
   def getSparkJob(appName: String, uploadTime: DateTime, classPath: String): JobJarInfo = {
-    cache.get((appName, uploadTime, classPath), {
-      val jarFilePath = new java.io.File(dao.retrieveJarFile(appName, uploadTime)).getAbsolutePath()
-      sparkContext.addJar(jarFilePath)   // Adds jar for remote executors
-      loader.addURL(new URL("file:" + jarFilePath))   // Now jar added for local loader
-      val constructor = JarUtils.loadClassOrObject[SparkJobBase](classPath, loader)
-      JobJarInfo(constructor, classPath, jarFilePath)
-    })
+    cache.get((appName, uploadTime, classPath))
+
+    val jarFilePath = new java.io.File(dao.retrieveJarFile(appName, uploadTime)).getAbsolutePath()
+    sparkContext.addJar(jarFilePath)   // Adds jar for remote executors
+    loader.addURL(new URL("file:" + jarFilePath))   // Now jar added for local loader
+    val constructor = JarUtils.loadClassOrObject[SparkJobBase](classPath, loader)
+    JobJarInfo(constructor, classPath, jarFilePath)
   }
 }
