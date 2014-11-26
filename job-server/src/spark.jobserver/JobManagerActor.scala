@@ -138,6 +138,7 @@ class JobManagerActor(dao: JobDAO,
       // Check appName, classPath from jar
       val jarInfo = JarInfo(appName, lastUploadTime.get)
       val jobId = java.util.UUID.randomUUID().toString()
+      logger.info("---in startJobInternal---")
       logger.info("Loading class {} for app {}", classPath, appName: Any)
       val jobJarInfo = try {
         jobCache.getSparkJob(jarInfo.appName, jarInfo.uploadTime, classPath)
