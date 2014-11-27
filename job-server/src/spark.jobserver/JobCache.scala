@@ -39,7 +39,7 @@ class JobCache(maxEntries: Int, dao: JobDAO, sparkContext: SparkContext, loader:
     }
     else
     {
-      logger.info(s"JobCache: Caching enabled for ${(appName,uploadTime,classPath)}")
+      logger.info(s"JobCache: Caching disabled for ${(appName,uploadTime,classPath)}")
       val jarFilePath = new java.io.File(dao.retrieveJarFile(appName, uploadTime)).getAbsolutePath()
       sparkContext.addJar(jarFilePath) // Adds jar for remote executors
       loader.addURL(new URL("file:" + jarFilePath)) // Now jar added for local loader
