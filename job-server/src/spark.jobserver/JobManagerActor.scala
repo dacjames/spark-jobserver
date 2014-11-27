@@ -90,6 +90,7 @@ class JobManagerActor(dao: JobDAO,
   lazy val jobCache = new JobCache(jobCacheSize, dao, jobContext.sparkContext, jarLoader, jobCachingEnabled)
 
   logger.info(s"jobCacheSize is ${jobCacheSize}")
+  logger.info(s"jobCachingEnabled: ${jobCachingEnabled}")
 
   private val statusActor = context.actorOf(Props(classOf[JobStatusActor], dao), "status-actor")
   protected val resultActor = resultActorRef.getOrElse(context.actorOf(Props[JobResultActor], "result-actor"))
