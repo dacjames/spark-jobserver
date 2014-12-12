@@ -28,7 +28,7 @@ object RddManagerActorMessages {
 class RddManagerActor(sparkContext: SparkContext) extends InstrumentedActor with YammerMetrics {
   import RddManagerActorMessages._
 
-  private val namesToIds = new mutable.HashMap[String, Int]()
+  private val namesToIds = new mutable.HashMap[String, (Int, RDD[_])]()
   private val waiters =
     new mutable.HashMap[String, mutable.Set[ActorRef]] with mutable.MultiMap[String, ActorRef]
   private val inProgress = mutable.Set[String]()
@@ -53,7 +53,7 @@ class RddManagerActor(sparkContext: SparkContext) extends InstrumentedActor with
 
     case CreateRddResult(name, Right(rdd)) =>
       val oldRddOption = getExistingRdd(name)
-      namesToIds(name) = rdd.id
+      namesToIds(name) = (rdd.id,rdd)
       notifyAndClearWaiters(name, Right(rdd))
       // Note: unpersist the old rdd we just replaced, if there was one
       if (oldRddOption.isDefined && oldRddOption.get.id != rdd.id) {
@@ -67,14 +67,14 @@ class RddManagerActor(sparkContext: SparkContext) extends InstrumentedActor with
 
     case GetRddNames =>
       val persistentRdds = sparkContext.getPersistentRDDs
-      val result = namesToIds.collect { case (name, id) if persistentRdds.contains(id) => name }
+      val result = namesToIds.collect { case (name, (id,rdd)) if persistentRdds.contains(id) => name }
       // optimization: can remove stale names from our map if the SparkContext has unpersisted them.
       (namesToIds.keySet -- result).foreach { staleName => namesToIds.remove(staleName) }
       sender ! result
   }
 
   private def getExistingRdd(name: String): Option[RDD[_]] =
-    namesToIds.get(name).flatMap { id => sparkContext.getPersistentRDDs.get(id) } match {
+    namesToIds.get(name).flatMap { v => sparkContext.getPersistentRDDs.get(v._1) } match {
       case Some(rdd) => Some(rdd)
       case None =>
         // If this happens, maybe we never knew about this RDD, or maybe we had a name -> id mapping, but
