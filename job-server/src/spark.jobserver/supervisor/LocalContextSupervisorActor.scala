@@ -1,36 +1,14 @@
 package spark.jobserver
 
-import akka.actor.{Terminated, Props, ActorRef, PoisonPill}
+import akka.actor.{ActorRef, PoisonPill, Props, Terminated}
 import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.config.Config
-import com.typesafe.config.ConfigFactory
 import ooyala.common.akka.InstrumentedActor
-import spark.jobserver.io.JobDAO
 import spark.jobserver.util.SparkJobUtils
+
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
-import org.joda.time.DateTime
-import org.joda.time.format.DateTimeFormat
-
-/** Messages common to all ContextSupervisors */
-object ContextSupervisor {
-  // Messages/actions
-  case object AddContextsFromConfig // Start up initial contexts
-  case object ListContexts
-  case class AddContext(name: String, contextConfig: Config)
-  case class GetAdHocContext(classPath: String, contextConfig: Config)
-  case class GetContext(name: String) // returns JobManager, JobResultActor
-  case class GetResultActor(name: String)  // returns JobResultActor
-  case class StopContext(name: String)
-
-  // Errors/Responses
-  case object ContextInitialized
-  case class ContextInitError(t: Throwable)
-  case object ContextAlreadyExists
-  case object NoSuchContext
-  case object ContextStopped
-}
 
 /**
  * This class starts and stops JobManagers / Contexts in-process.
@@ -65,9 +43,10 @@ object ContextSupervisor {
  *   }
  * }}}
  */
-class LocalContextSupervisorActor(dao: JobDAO) extends InstrumentedActor {
-  import ContextSupervisor._
-  import scala.collection.JavaConverters._
+class LocalContextSupervisorActor(daoActor: ActorRef) extends InstrumentedActor {
+  import spark.jobserver.supervisor.ContextSupervisorMessages._
+
+import scala.collection.JavaConverters._
   import scala.concurrent.duration._
 
   val config = context.system.settings.config
@@ -155,19 +134,24 @@ class LocalContextSupervisorActor(dao: JobDAO) extends InstrumentedActor {
     require(!(contexts contains name), "There is already a context named " + name)
     logger.info("Creating a SparkContext named {}", name)
 
-    val resultActorRef = if (isAdHoc) Some(globalResultActor) else None
+    //todo: review - no need for global result actors, one global/status per context whether adhoc or not
+    val statusActor = context.actorOf(Props(classOf[JobStatusActor], daoActor))
+    val resultActor = context.actorOf(Props[JobResultActor])
+
     val ref = context.actorOf(Props(
-      classOf[JobManagerActor], dao, name, contextConfig, isAdHoc, resultActorRef), name)
-    (ref ? JobManagerActor.Initialize)(Timeout(timeoutSecs.second)).onComplete {
+      classOf[JobManagerActor], name, contextConfig, isAdHoc), name)
+    (ref ? JobManagerActor.Initialize(daoActor, statusActor, resultActor))(
+      Timeout(timeoutSecs.second)).onComplete {
       case Failure(e: Exception) =>
         logger.error("Exception after sending Initialize to JobManagerActor", e)
         // Make sure we try to shut down the context in case it gets created anyways
         ref ! PoisonPill
         failureFunc(e)
-      case Success(JobManagerActor.Initialized(resultActor)) =>
+      case Success(JobManagerActor.Initialized) =>
         logger.info("SparkContext {} initialized", name)
         contexts(name) = ref
         resultActors(name) = resultActor
+        //todo: add to status actors
         successFunc(ref)
       case Success(JobManagerActor.InitError(t)) =>
         ref ! PoisonPill

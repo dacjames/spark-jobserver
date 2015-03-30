@@ -1,42 +1,33 @@
 package spark.jobserver
 
+import akka.actor.{ActorRef, Props, PoisonPill}
+import com.typesafe.config.Config
 import java.net.{URI, URL}
 import java.util.concurrent.atomic.AtomicInteger
-
-import akka.actor._
-import akka.cluster.ClusterEvent._
-import akka.cluster.{Cluster, MemberStatus}
-import akka.util.Timeout
-import com.typesafe.config.Config
 import ooyala.common.akka.InstrumentedActor
-import org.apache.spark.SparkEnv
+import org.apache.spark.{ SparkEnv, SparkContext }
 import org.joda.time.DateTime
-import spark.jobserver.io.JobDAOActor.{GetLastUploadTime, LastUploadTime}
-import spark.jobserver.io.{JarInfo, JobInfo}
-import spark.jobserver.supervisor.ContextSupervisorMessages.StopContext
-import spark.jobserver.util.{ContextURLClassLoader, SparkJobUtils}
-
-import scala.concurrent.duration._
 import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
+import spark.jobserver.ContextSupervisor.StopContext
+import spark.jobserver.io.{ JobDAO, JobInfo, JarInfo }
+import spark.jobserver.util.{ContextURLClassLoader, SparkJobUtils}
 
 object JobManagerActor {
   // Messages
-  case class Initialize(daoActor: ActorRef, statusActor: ActorRef, resultActor: ActorRef)
+  case object Initialize
   case class StartJob(appName: String, classPath: String, config: Config,
                       subscribedEvents: Set[Class[_]])
-  case object GetContextInfo
 
   // Results/Data
-  case object Initialized
+  case class Initialized(resultActor: ActorRef)
   case class InitError(t: Throwable)
   case class JobLoadingError(err: Throwable)
-  case class ContextInfo(name: String, config: Config, isAdHoc: Boolean)
 
   // Akka 2.2.x style actor props for actor creation
-  def props(dao: ActorRef, name: String, config: Config, isAdHoc: Boolean): Props =
-    Props(classOf[JobManagerActor], dao, name, config, isAdHoc)
-
+  def props(dao: JobDAO, name: String, config: Config, isAdHoc: Boolean,
+            resultActorRef: Option[ActorRef] = None): Props =
+    Props(classOf[JobManagerActor], dao, name, config, isAdHoc, resultActorRef)
 }
 
 /**
@@ -65,16 +56,17 @@ object JobManagerActor {
  *   }
  * }}}
  */
-class JobManagerActor(contextName: String,
+class JobManagerActor(dao: JobDAO,
+                      contextName: String,
                       contextConfig: Config,
-                      isAdHoc: Boolean) extends InstrumentedActor {
-  logger.info("JobManager actor inited: " + self)
-  import context.dispatcher
-  import spark.jobserver.CommonMessages._
-  import spark.jobserver.JobManagerActor._
+                      isAdHoc: Boolean,
+                      resultActorRef: Option[ActorRef] = None) extends InstrumentedActor {
 
-import scala.collection.JavaConverters._
-  import scala.util.control.Breaks._       // for futures to work
+  import CommonMessages._
+  import JobManagerActor._
+  import scala.util.control.Breaks._
+  import collection.JavaConverters._
+  import context.dispatcher       // for futures to work
 
   val config = context.system.settings.config
 
@@ -93,43 +85,18 @@ import scala.collection.JavaConverters._
   private val jobCacheEnabled = Try(config.getBoolean("spark.job-cache.enabled")).getOrElse(false)
   // Use Spark Context's built in classloader when SPARK-1230 is merged.
   private val jarLoader = new ContextURLClassLoader(Array[URL](), getClass.getClassLoader)
+  lazy val jobCache = new JobCache(jobCacheSize, dao, jobContext.sparkContext, jarLoader, jobCacheEnabled)
 
-  var jobCache: JobCache = _ //
-  private var statusActor: ActorRef = _
-  private var resultActor: ActorRef = _
-  private var daoActor: ActorRef = _
-
-  private val cluster = Cluster(context.system)
-
-  implicit val ShortTimeout = Timeout(3 seconds)
-
-  def supervisors(): Set[ActorSelection] = {
-    val supMembers = cluster.state.members.filter{m => m.hasRole("supervisor") && m.status == MemberStatus.Up}
-    supMembers.map { m => context.actorSelection(RootActorPath(m.address) / "user" / "context-supervisor") }
-  }
-
-  override def preStart(): Unit = {
-    cluster.subscribe(self, initialStateMode = initialStateAsEvents, classOf[MemberEvent])
-  }
+  private val statusActor = context.actorOf(Props(classOf[JobStatusActor], dao), "status-actor")
+  protected val resultActor = resultActorRef.getOrElse(context.actorOf(Props[JobResultActor], "result-actor"))
 
   override def postStop() {
-    cluster.unsubscribe(self)
     logger.info("Shutting down SparkContext {}", contextName)
     Option(jobContext).foreach(_.stop())
   }
 
   def wrappedReceive: Receive = {
-    //cluster messages
-    //todo: update supervisors list according to cluster messages
-    case MemberUp(member) => logger.info("jobmanageractor recvd memberup " + member.address)
-    case MemberExited(member) =>
-    case MemberRemoved(member, prevStatus) =>
-
-    case Initialize(daoAct, statActor, resActor) =>
-      logger.info(s"JMA Init dao: $daoAct stat: $statActor res: $resActor")
-      daoActor = daoAct
-      statusActor = statActor
-      resultActor = resActor
+    case Initialize =>
       try {
         // Load side jars first in case the ContextFactory comes from it
         getSideJars(contextConfig).foreach { jarUri =>
@@ -137,10 +104,10 @@ import scala.collection.JavaConverters._
         }
         jobContext = createContextFromConfig()
         sparkEnv = SparkEnv.get
-        rddManagerActor = context.actorOf(Props(classOf[RddManagerActor], jobContext.sparkContext))
-        jobCache = new JobCache(jobCacheSize, daoActor, jobContext.sparkContext, jarLoader, jobCacheEnabled)
+        rddManagerActor = context.actorOf(Props(classOf[RddManagerActor], jobContext.sparkContext),
+                                          "rdd-manager-actor")
         getSideJars(contextConfig).foreach { jarUri => jobContext.sparkContext.addJar(jarUri) }
-        sender ! Initialized
+        sender ! Initialized(resultActor)
       } catch {
         case t: Throwable =>
           logger.error("Failed to create context " + contextName + ", shutting down actor", t)
@@ -150,9 +117,6 @@ import scala.collection.JavaConverters._
 
     case StartJob(appName, classPath, jobConfig, events) =>
       startJobInternal(appName, classPath, jobConfig, events, jobContext, sparkEnv, rddManagerActor)
-
-    case GetContextInfo =>
-      sender ! ContextInfo(contextName, contextConfig, isAdHoc)
   }
 
   def startJobInternal(appName: String,
@@ -163,18 +127,8 @@ import scala.collection.JavaConverters._
                        sparkEnv: SparkEnv,
                        rddManagerActor: ActorRef): Option[Future[Any]] = {
     var future: Option[Future[Any]] = None
-    import akka.pattern.ask
-
-import scala.concurrent.Await
-    import scala.concurrent.duration._
     breakable {
-      //logger.info("JOBMANAGER DAO " + dao)
-      //logger.info("JOBMANAGER DAO apps" + dao.getApps)
-      //logger.info("JOBMANAGER DAO " + dao.getJobInfos)
-      val req = (daoActor ? GetLastUploadTime(appName))(10 seconds).mapTo[LastUploadTime]
-      logger.info("JMA startJob requesting upload time")
-      val lastUploadTime = Await.result(req, 10 seconds).uploadTime
-      logger.info(s"JMA startJob got last upload time: $lastUploadTime")
+      val lastUploadTime = dao.getLastUploadTime(appName)
       if (!lastUploadTime.isDefined) {
         sender ! NoSuchApplication
         break
@@ -311,7 +265,7 @@ import scala.concurrent.Await
   // This method should be called after each job is succeeded or failed
   private def postEachJob() {
     // Delete the JobManagerActor after each adhoc job
-    if (isAdHoc) supervisors().foreach{ sup => sup ! StopContext(contextName) }
+    if (isAdHoc) context.parent ! StopContext(contextName) // its parent is LocalContextSupervisorActor
   }
 
   // Protocol like "local" is supported in Spark for Jar loading, but not supported in Java.

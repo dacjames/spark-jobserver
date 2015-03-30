@@ -1,5 +1,7 @@
 package ooyala.common.akka
 
+import java.lang.management.ManagementFactory
+
 import akka.actor.Actor
 import org.slf4j.LoggerFactory
 
@@ -32,6 +34,8 @@ trait Slf4jLogging extends ActorStack {
     // we kind of have to set the MDC anew for each receive invocation.  :(
     try {
       org.slf4j.MDC.put("akkaSource", myPath)
+      val rt = ManagementFactory.getRuntimeMXBean();
+      org.slf4j.MDC.put("PID", rt.getName)
       fn
     } finally {
       org.slf4j.MDC.remove("akkaSource")

@@ -20,6 +20,7 @@ object Dependencies {
     // Akka is provided because Spark already includes it, and Spark's version is shaded so it's not safe
     // to use this one
     "com.typesafe.akka" %% "akka-slf4j" % "2.3.4" % "provided",
+    "com.typesafe.akka" %% "akka-cluster" % "2.3.4",
     "io.spray" %% "spray-json" % "1.3.1",
     "io.spray" %% "spray-can" % "1.3.2",
     "io.spray" %% "spray-routing" % "1.3.2",
@@ -28,9 +29,9 @@ object Dependencies {
   ) ++ yodaDeps
 
   lazy val sparkDeps = Seq(
-    "org.apache.spark" %% "spark-core" % "1.2.0" % "provided" exclude(
+    "org.apache.spark" %% "spark-core" % "1.2.0" exclude(
                                             "io.netty", "netty-all") excludeAll(excludeQQ),
-    "org.apache.spark" %% "spark-sql" % "1.2.0" % "provided" exclude(
+    "org.apache.spark" %% "spark-sql" % "1.2.0" exclude(
                                             "io.netty", "netty-all") excludeAll(excludeQQ),
     // Force netty version.  This avoids some Spark netty dependency problem.
     "io.netty" % "netty-all" % "4.0.23.Final"

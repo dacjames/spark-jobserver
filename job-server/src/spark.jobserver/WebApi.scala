@@ -27,7 +27,7 @@ class WebApi(system: ActorSystem,
              jobInfo: ActorRef)
     extends HttpService with CommonRoutes {
   import CommonMessages._
-  import ContextSupervisor._
+  import spark.jobserver.supervisor.ContextSupervisorMessages._
   import scala.concurrent.duration._
 
   // Get spray-json type classes for serializing Map[String, Any]
@@ -35,7 +35,7 @@ class WebApi(system: ActorSystem,
 
   override def actorRefFactory: ActorSystem = system
   implicit val ec: ExecutionContext = system.dispatcher
-  implicit val ShortTimeout = Timeout(3 seconds)
+  implicit val ShortTimeout = Timeout(30 seconds)
   val DefaultSyncTimeout = Timeout(10 seconds)
   val DefaultJobLimit = 50
   val StatusKey = "status"
@@ -96,9 +96,12 @@ class WebApi(system: ActorSystem,
    *     DELETE /contexts/<contextName> - stops a context and all jobs running in it
    */
   def contextRoutes: Route = pathPrefix("contexts") {
-    import ContextSupervisor._
+    import spark.jobserver.supervisor.ContextSupervisorMessages._
     import collection.JavaConverters._
     get { ctx =>
+      logger.info("GET CONTEXTS")
+      logger.info("REQUESTING FROM SUPERVISOR " + supervisor)
+      supervisor ! ListContexts
       (supervisor ? ListContexts).mapTo[Seq[String]]
         .map { contexts => ctx.complete(contexts) }
     } ~
@@ -230,6 +233,7 @@ class WebApi(system: ActorSystem,
           val future = (jobInfo ? GetJobStatuses(Some(limit))).mapTo[Seq[JobInfo]]
           respondWithMediaType(MediaTypes.`application/json`) { ctx =>
             future.map { infos =>
+              logger.info(s"WebAPI /get/jobs received infos: $infos")
               val jobReport = infos.map { info =>
                 Map("jobId" -> info.jobId,
                   "startTime" -> info.startTime.toString(),
@@ -359,7 +363,6 @@ class WebApi(system: ActorSystem,
   private def getJobManagerForContext(context: Option[String],
                                       contextConfig: Config,
                                       classPath: String): Option[ActorRef] = {
-    import ContextSupervisor._
     val msg =
       if (context.isDefined) {
         GetContext(context.get)

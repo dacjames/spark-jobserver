@@ -105,11 +105,14 @@ class JobFileDAO(config: Config) extends JobDAO {
       bos.close()
     }
 
+    logger.info("writing jar info")
     // log it into jobsFile
     writeJarInfo(jarsOutputStream, JarInfo(appName, uploadTime))
+    logger.info(s"wrote jar info ${appName},$uploadTime")
 
     // track the new jar in memory
     addJar(appName, uploadTime)
+    logger.info("added jar")
   }
 
   private def writeJarInfo(out: DataOutputStream, jarInfo: JarInfo) {
@@ -120,11 +123,13 @@ class JobFileDAO(config: Config) extends JobDAO {
   private def readJarInfo(in: DataInputStream) = JarInfo(in.readUTF, new DateTime(in.readLong))
 
   private def addJar(appName: String, uploadTime: DateTime) {
+    logger.info(s"add jar $appName, $uploadTime, apps: $apps")
     if (apps.contains(appName)) {
       apps(appName) = uploadTime +: apps(appName) // latest time comes first
     } else {
       apps(appName) = Seq(uploadTime)
     }
+    logger.info(s"after add jar apps: $apps")
   }
 
   def getApps: Map[String, DateTime] = apps.map {
