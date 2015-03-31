@@ -22,7 +22,7 @@ import scala.util.{Failure, Success, Try}
 
 object JobManagerActor {
   // Messages
-  case class Initialize(daoActor: ActorRef, statusActor: ActorRef, resultActor: ActorRef)
+  case class Initialize(daoActor: ActorRef, resultActor: ActorRef)
   case class StartJob(appName: String, classPath: String, config: Config,
                       subscribedEvents: Set[Class[_]])
   case object GetContextInfo
@@ -125,11 +125,11 @@ import scala.collection.JavaConverters._
     case MemberExited(member) =>
     case MemberRemoved(member, prevStatus) =>
 
-    case Initialize(daoAct, statActor, resActor) =>
-      logger.info(s"JMA Init dao: $daoAct stat: $statActor res: $resActor")
+    case Initialize(daoAct, resActor) =>
       daoActor = daoAct
-      statusActor = statActor
       resultActor = resActor
+      statusActor = context.actorOf(Props(classOf[JobStatusActor], daoActor), "status-actor")
+      logger.info(s"JMA Init dao: $daoActor stat: $statusActor res: $resultActor")
       try {
         // Load side jars first in case the ContextFactory comes from it
         getSideJars(contextConfig).foreach { jarUri =>

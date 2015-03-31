@@ -135,12 +135,11 @@ import scala.collection.JavaConverters._
     logger.info("Creating a SparkContext named {}", name)
 
     //todo: review - no need for global result actors, one global/status per context whether adhoc or not
-    val statusActor = context.actorOf(Props(classOf[JobStatusActor], daoActor))
     val resultActor = context.actorOf(Props[JobResultActor])
 
     val ref = context.actorOf(Props(
       classOf[JobManagerActor], name, contextConfig, isAdHoc), name)
-    (ref ? JobManagerActor.Initialize(daoActor, statusActor, resultActor))(
+    (ref ? JobManagerActor.Initialize(daoActor, resultActor))(
       Timeout(timeoutSecs.second)).onComplete {
       case Failure(e: Exception) =>
         logger.error("Exception after sending Initialize to JobManagerActor", e)
@@ -151,7 +150,6 @@ import scala.collection.JavaConverters._
         logger.info("SparkContext {} initialized", name)
         contexts(name) = ref
         resultActors(name) = resultActor
-        //todo: add to status actors
         successFunc(ref)
       case Success(JobManagerActor.InitError(t)) =>
         ref ! PoisonPill

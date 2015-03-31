@@ -10,7 +10,7 @@ import com.typesafe.config.Config
 import ooyala.common.akka.InstrumentedActor
 import spark.jobserver.JobManagerActor.{ContextInfo, GetContextInfo}
 import spark.jobserver.util.SparkJobUtils
-import spark.jobserver.{JobManagerActor, JobResultActor, JobStatusActor}
+import spark.jobserver.{JobManagerActor, JobResultActor}
 
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
@@ -30,7 +30,6 @@ import scala.collection.JavaConverters._
 
   private val contexts = mutable.HashMap.empty[String, ActorRef]
   private val resultActors = mutable.HashMap.empty[String, ActorRef]
-  private val statusActors = mutable.HashMap.empty[String, ActorRef]
 
   private val cluster = Cluster(context.system)
 
@@ -52,9 +51,8 @@ import scala.collection.JavaConverters._
         context.actorSelection(RootActorPath(member.address)/"user"/"jobManager").resolveOne().onComplete {
           case Success(ref) =>
             context.watch(ref)
-            val statusActor = context.actorOf(Props(classOf[JobStatusActor], daoActor))
             val resultActor = context.actorOf(Props[JobResultActor])
-            (ref ? JobManagerActor.Initialize(daoActor, statusActor, resultActor)).onComplete {
+            (ref ? JobManagerActor.Initialize(daoActor, resultActor)).onComplete {
               case Failure(e: Exception) =>
                 logger.error("Excepting initializing JobManagerActor: " + ref, e)
                 ref ! PoisonPill
@@ -72,7 +70,6 @@ import scala.collection.JavaConverters._
                     else {
                       logger.info("SparkContext {} joined", ctxName)
                       contexts(ctxName) = ref
-                      statusActors(ctxName) = statusActor
                       resultActors(ctxName) = resultActor
                     }
                   case x =>
@@ -145,7 +142,6 @@ import scala.collection.JavaConverters._
         context.watch(contexts(name))
         contexts(name) ! PoisonPill
         resultActors.remove(name)
-        statusActors.remove(name)
         sender ! ContextStopped
       } else {
         sender ! NoSuchContext
@@ -156,7 +152,6 @@ import scala.collection.JavaConverters._
       logger.info("Actor terminated: " + name)
       contexts.foreach { kv => if (kv._2 == ref) contexts.remove(kv._1) }
       resultActors.foreach { kv => if (kv._2 == ref) resultActors.remove(kv._1) }
-      statusActors.foreach { kv => if (kv._2 == ref) statusActors.remove(kv._1) }
 
   }
 
