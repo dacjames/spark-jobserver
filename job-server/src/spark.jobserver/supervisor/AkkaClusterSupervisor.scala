@@ -32,8 +32,6 @@ import scala.collection.JavaConverters._
   private val resultActors = mutable.HashMap.empty[String, ActorRef]
   private val statusActors = mutable.HashMap.empty[String, ActorRef]
 
-  private val memberInitializations = mutable.HashMap.empty[ActorRef, ActorRef => Unit]
-
   private val cluster = Cluster(context.system)
 
   // This is for capturing results for ad-hoc jobs. Otherwise when ad-hoc job dies, resultActor also dies,
@@ -42,15 +40,6 @@ import scala.collection.JavaConverters._
 
   override def preStart(): Unit = {
     cluster.subscribe(self, initialStateMode = InitialStateAsEvents, classOf[MemberEvent])
-  }
-
-  private def dropMember(member:Member) = {
-    context.actorSelection(RootActorPath(member.address) / "user" / "jobManager").resolveOne().onSuccess({
-      case ref =>
-        contexts.foreach { kv => if (kv._2 == ref) contexts.remove(kv._1) }
-        resultActors.foreach { kv => if (kv._2 == ref) resultActors.remove(kv._1) }
-        statusActors.foreach { kv => if (kv._2 == ref) statusActors.remove(kv._1) }
-    })
   }
 
   //joining, up, leaving, exiting, down
@@ -62,57 +51,49 @@ import scala.collection.JavaConverters._
       if (member.hasRole("jobManager")) {
         context.actorSelection(RootActorPath(member.address)/"user"/"jobManager").resolveOne().onComplete {
           case Success(ref) =>
+            context.watch(ref)
             val statusActor = context.actorOf(Props(classOf[JobStatusActor], daoActor))
             val resultActor = context.actorOf(Props[JobResultActor])
-            (ref ? JobManagerActor.Initialize(daoActor, statusActor, resultActor)).onComplete { t => t match
-              {
-                case Failure(e: Exception) =>
-                  logger.error("Excepting initializing JobManagerActor: " + ref, e)
-                  ref ! PoisonPill
-                case Success(JobManagerActor.Initialized) =>
-                  (ref ? GetContextInfo).onComplete {
-                    case Failure(e) =>
-                      logger.error("Exception getting context info for JobManagerActor: " + ref, e)
+            (ref ? JobManagerActor.Initialize(daoActor, statusActor, resultActor)).onComplete {
+              case Failure(e: Exception) =>
+                logger.error("Excepting initializing JobManagerActor: " + ref, e)
+                ref ! PoisonPill
+              case Success(JobManagerActor.Initialized) =>
+                (ref ? GetContextInfo).onComplete {
+                  case Failure(e) =>
+                    logger.error("Exception getting context info for JobManagerActor: " + ref, e)
+                    ref ! PoisonPill
+                  case Success(ContextInfo(ctxName, ctxConf, ctxIsAdHoc)) =>
+                    if (contexts contains ctxName) {
+                      logger.error("JobManager with context " + ctxName + " joined, but" +
+                        " context with that name exists")
                       ref ! PoisonPill
-                    case Success(ContextInfo(ctxName, ctxConf, ctxIsAdHoc)) =>
-                      if (contexts contains ctxName)
-                      {
-                        logger.error("JobManager with context " + ctxName + " joined, but" +
-                          " context with that name exists")
-                      }
-                      else
-                      {
-                        logger.info("SparkContext {} joined", ctxName)
-                        contexts(ctxName) = ref
-                        statusActors(ctxName) = statusActor
-                        resultActors(ctxName) = resultActor
-                      }
-                    case x =>
-                      logger.warn("Unexpected reply to get context info: {}", x)
-                      ref ! PoisonPill
-                  }
-                case Success(JobManagerActor.InitError(t)) =>
-                  logger.warn("Jobmanager init error {}", t)
-                  ref ! PoisonPill
-                case x =>
-                  logger.warn("Unexpected message received from job manager: {}", x)
-              }
+                    }
+                    else {
+                      logger.info("SparkContext {} joined", ctxName)
+                      contexts(ctxName) = ref
+                      statusActors(ctxName) = statusActor
+                      resultActors(ctxName) = resultActor
+                    }
+                  case x =>
+                    logger.warn("Unexpected reply to get context info: {}", x)
+                    ref ! PoisonPill
+                }
+              case Success(JobManagerActor.InitError(t)) =>
+                logger.warn("Jobmanager init error {}", t)
+                ref ! PoisonPill
+              case x =>
+                logger.warn("Unexpected message received from job manager: {}", x)
             }
           case Failure(e) =>
             logger.warn("Unable to find job manager actor on cluster member " + member.address, e)
         }
       }
 
-    case MemberExited(member) =>
-      if (member.hasRole("jobManager")) dropMember(member)
-    case MemberRemoved(member, prevStatus) =>
-      if (member.hasRole("jobManager")) dropMember(member)
-
     case AddContextsFromConfig =>
       addContextsFromConfig(config)
 
     case ListContexts =>
-      logger.info("AkkaClusterSupervisor received ListContexts")
       sender ! contexts.keys.toSeq
 
     case AddContext(name, contextConfig) =>
@@ -170,10 +151,13 @@ import scala.collection.JavaConverters._
         sender ! NoSuchContext
       }
 
-    case Terminated(actorRef) =>
-      val name :String = actorRef.path.name
+    case Terminated(ref) =>
+      val name :String = ref.path.name
       logger.info("Actor terminated: " + name)
-      contexts.foreach { kv => if (kv._2 == actorRef) contexts.remove(kv._1) }
+      contexts.foreach { kv => if (kv._2 == ref) contexts.remove(kv._1) }
+      resultActors.foreach { kv => if (kv._2 == ref) resultActors.remove(kv._1) }
+      statusActors.foreach { kv => if (kv._2 == ref) statusActors.remove(kv._1) }
+
   }
 
   override def postStop():Unit = {
@@ -186,20 +170,23 @@ import scala.collection.JavaConverters._
     require(!(contexts contains name), "There is already a context named "  + name)
     logger.info("Creating a SparkContext named {} remotely", name)
 
+
     //def remoteScope(): RemoteScope = RemoteScope(Address("akka.tcp", "JobServer", "127.0.0.1", 2551))
 
     //val ref = context.system.actorOf(Props(
     //  classOf[JobManagerActor], name, contextConfig, isAdHoc).
     //    withDeploy(Deploy(scope = remoteScope())), name)
 
+    //TODO: Launch java process with right classpath (maybe use shell script to launch)
+    //todo: right now cp = ".", JobManager class is not found so process does not start
     import java.io.File
-    val seperator = File.separator; //System.getProperty("file.seperator")
+    val separator = File.separator; //System.getProperty("file.seperator")
     val classpath = System.getProperty("java.class.path")
     val javaHome = System.getProperty("java.home")
-    val javaPath = javaHome + seperator + "bin" + seperator + "java"
+    val javaPath = javaHome + separator + "bin" + separator + "java"
 
     import spark.jobserver.JobManager
-    logger.info("Launching process: {}", javaPath + "-cp " + classpath)
+    logger.info("Launching process: {}", javaPath + " -cp " + classpath + " " + JobManager.getClass.getName)
     val pb = new ProcessBuilder(javaPath, "-cp", classpath, JobManager.getClass.getName)
     val process = pb.start()
     val is = process.getInputStream
@@ -208,59 +195,6 @@ import scala.collection.JavaConverters._
 
     logger.info("process stdout after 30 secs: {} ", scala.io.Source.fromInputStream(is).mkString)
     logger.info("process stderr after 30 secs: {} ", scala.io.Source.fromInputStream(es).mkString)
-
-
-//    memberInitializations(ref) = {
-//      case Failure(e: Exception) =>
-//        logger.error("Exception after sending Initialize to JobManagerActor", e)
-//        // Make sure we try to shut down the context in case it gets created anyways
-//        ref ! PoisonPill
-//        failureFunc(e)
-//      case Success(JobManagerActor.Initialized(_)) =>
-//        logger.info("SparkContext {} initialized", name)
-//        contexts(name) = ref
-//        resultActors(name) = resultActorRef
-//        statusActors(name) = statusActorRef
-//        successFunc(ref)
-//      case Success(JobManagerActor.InitError(t)) =>
-//        ref ! PoisonPill
-//        failureFunc(t)
-//      case x =>
-//        logger.warn("Unexpected message received from job manager: {}", x)
-//    }
-//
-//    val defaultInitialization: Try[Any] => Unit = {
-//      case Failure(e: Exception) =>
-//        logger.error("Excepting initializing JobManagerActor: " + ref, e)
-//        ref ! PoisonPill
-//      case Success(JobManagerActor.Initialized(_)) =>
-//        (ref ? GetContextInfo)(contextTimeout).onComplete {
-//          case Failure(e) =>
-//            logger.error("Exception getting context info for JobManagerActor: " + ref, e)
-//            ref ! PoisonPill
-//          case Success(ContextInfo(ctxName, ctxConf, ctxIsAdHoc, ctxResActorOpt, ctxStatusActorOpt)) =>
-//            if (contexts contains ctxName)
-//            {
-//              logger.error("JobManager with context " + ctxName + " joined, " +
-//                "but context with that name exists")
-//            }
-//           else
-//            {
-//              logger.info("SparkContext {} joined", ctxName)
-//              contexts(ctxName) = ref
-//              resultActors(ctxName) = ctxResActorOpt.getOrElse(context.actorOf(Props[JobResultActor],
-//                s"result-actor-$ctxName"))
-//              statusActors(ctxName) = ctxStatusActorOpt.getOrElse(context.actorOf(Props
-//                (classOf[JobStatusActor], dao), s"status-actor-$name"))
-//            }
-//        }
-//      case Success(JobManagerActor.InitError(t)) =>
-//        ref ! PoisonPill
-//      case x =>
-//        logger.warn("Unexpected message received from job manager: {}", x)
-//    }
-
-
   }
 
   // Adds the contexts from the config file
