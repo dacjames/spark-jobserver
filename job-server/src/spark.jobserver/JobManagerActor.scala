@@ -129,7 +129,6 @@ import scala.collection.JavaConverters._
       daoActor = daoAct
       resultActor = resActor
       statusActor = context.actorOf(Props(classOf[JobStatusActor], daoActor), "status-actor")
-      logger.info(s"JMA Init dao: $daoActor stat: $statusActor res: $resultActor")
       try {
         // Load side jars first in case the ContextFactory comes from it
         getSideJars(contextConfig).foreach { jarUri =>
@@ -168,13 +167,8 @@ import scala.collection.JavaConverters._
 import scala.concurrent.Await
     import scala.concurrent.duration._
     breakable {
-      //logger.info("JOBMANAGER DAO " + dao)
-      //logger.info("JOBMANAGER DAO apps" + dao.getApps)
-      //logger.info("JOBMANAGER DAO " + dao.getJobInfos)
       val req = (daoActor ? GetLastUploadTime(appName))(10 seconds).mapTo[LastUploadTime]
-      logger.info("JMA startJob requesting upload time")
       val lastUploadTime = Await.result(req, 10 seconds).uploadTime
-      logger.info(s"JMA startJob got last upload time: $lastUploadTime")
       if (!lastUploadTime.isDefined) {
         sender ! NoSuchApplication
         break

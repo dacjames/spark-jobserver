@@ -49,8 +49,7 @@ import scala.collection.JavaConverters._
   def wrappedReceive: Receive = {
     //Cluster events
     case MemberUp(member) =>
-      logger.info("ACS member up: " + member)
-      logger.info("member roles: " + member.getRoles )
+      logger.info("Member {} joined cluster with roles " + member.getRoles, member)
       if (member.hasRole("jobManager")) {
         context.actorSelection(RootActorPath(member.address)/"user"/"jobManager").resolveOne().onComplete {
           case Success(ref) =>
@@ -58,7 +57,7 @@ import scala.collection.JavaConverters._
             val resultActor = context.actorOf(Props[JobResultActor])
             (ref ? JobManagerActor.Initialize(daoActor, resultActor)).onComplete {
               case Failure(e: Exception) =>
-                logger.error("Excepting initializing JobManagerActor: " + ref, e)
+                logger.error("Exception initializing JobManagerActor: " + ref, e)
                 ref ! PoisonPill
               case Success(JobManagerActor.Initialized) =>
                 (ref ? GetContextInfo).onComplete {
