@@ -2,8 +2,7 @@ package spark.jobserver
 
 import java.io.File
 
-import akka.actor.{ActorSystem, Address, Props}
-import akka.cluster.Cluster
+import akka.actor.{ActorSystem, Props}
 import com.typesafe.config.{Config, ConfigFactory}
 import org.slf4j.LoggerFactory
 
@@ -18,9 +17,8 @@ object JobManager {
   // we can have something that stores the ActorSystem so it could be shut down easily later.
   def start(args: Array[String], makeSystem: Config => ActorSystem) {
     val managerConfig = ConfigFactory.load("jobmanager.conf").withFallback(ConfigFactory.load())
-    val contextName = if (args.length > 0) args(0) else java.util.UUID.randomUUID.toString
-    val config = if (args.length > 1) {
-      val configFile = new File(args(1))
+    val config = if (args.length > 0) {
+      val configFile = new File(args(0))
       if (!configFile.exists()) {
         println("Could not find configuration file " + configFile)
         sys.exit(1)
@@ -29,6 +27,7 @@ object JobManager {
     } else {
       managerConfig
     }
+    val contextName = if (args.length > 1) args(1) else java.util.UUID.randomUUID.toString
     println("Starting JobManager with config " + config.getConfig("spark").root.render)
     logger.info("Starting JobManager with config {}", config.getConfig("spark").root.render())
 
@@ -38,9 +37,7 @@ object JobManager {
     val defaultContextConfig = config.getConfig("spark.context-settings")
     val jobManager = system.actorOf(Props(classOf[JobManagerActor], contextName,
       defaultContextConfig, false), "jobManager")
-
-    val cluster = Cluster(system)
-    logger.info("JobManager system: " + system)
+    system.registerOnTermination(System.exit(0))
 
     //val jarManager = system.actorOf(Props(classOf[JarManager], jobDAO), "jar-manager")
     //val supervisor = system.actorOf(Props(classOf[AkkaClusterSupervisor], jobDAO), "context-supervisor")
