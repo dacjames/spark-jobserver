@@ -103,6 +103,7 @@ import scala.collection.JavaConverters._
         originator ! ContextAlreadyExists
       } else {
         startContext(name, mergedConfig, false, contextTimeout) { contextMgr =>
+
           originator ! ContextInitialized
         } { err =>
           originator ! ContextInitError(err)
@@ -123,6 +124,7 @@ import scala.collection.JavaConverters._
 
       // Create JobManagerActor and JobResultActor
       startContext(contextName, mergedConfig, true, contextTimeout) { contextMgr =>
+        Thread.sleep((contextTimeout * 1000 * 0.75).toInt)
         originator ! (contexts(contextName), resultActors(contextName))
       } { err =>
         originator ! ContextInitError(err)
