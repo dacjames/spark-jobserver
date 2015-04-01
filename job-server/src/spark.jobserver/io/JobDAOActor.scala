@@ -1,5 +1,6 @@
 package spark.jobserver.io
 
+import akka.actor.{Props, ActorRef}
 import com.typesafe.config.Config
 import ooyala.common.akka.InstrumentedActor
 import org.joda.time.DateTime
@@ -12,6 +13,7 @@ object JobDAOActor {
   //requests
   case class SaveJar(appName: String, uploadTime: DateTime, jarBytes: Array[Byte])
   case class GetJarPath(appName: String, uploadTime: DateTime)
+
   case object GetApps
 
   case class SaveJobInfo(jobInfo: JobInfo)
@@ -23,7 +25,6 @@ object JobDAOActor {
   case class GetJobConfig(jobId: String)
 
   case class GetLastUploadTime(appName:String)
-
 
   //responses
   case class JarPath(path:String)
@@ -37,7 +38,9 @@ object JobDAOActor {
 
   case class LastUploadTime(uploadTime:Option[DateTime])
 
-
+  // Akka 2.2.x style actor props for actor creation
+  def props(dao: JobDAO): Props =
+    Props(classOf[JobDAOActor], dao)
 
 }
 
@@ -53,7 +56,6 @@ class JobDAOActor(dao: JobDAO) extends InstrumentedActor {
 
     case GetApps =>
       sender ! Apps(dao.getApps)
-
 
     case SaveJobInfo(jobInfo) =>
       dao.saveJobInfo(jobInfo)
@@ -76,7 +78,6 @@ class JobDAOActor(dao: JobDAO) extends InstrumentedActor {
 
     case GetLastUploadTime(appName) =>
       sender ! LastUploadTime(dao.getLastUploadTime(appName))
-
   }
 
 

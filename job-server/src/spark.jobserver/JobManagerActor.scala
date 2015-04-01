@@ -34,8 +34,8 @@ object JobManagerActor {
   case class ContextInfo(name: String, config: Config, isAdHoc: Boolean)
 
   // Akka 2.2.x style actor props for actor creation
-  def props(dao: ActorRef, name: String, config: Config, isAdHoc: Boolean): Props =
-    Props(classOf[JobManagerActor], dao, name, config, isAdHoc)
+  def props(name: String, config: Config, isAdHoc: Boolean): Props =
+    Props(classOf[JobManagerActor], name, config, isAdHoc)
 
 }
 
