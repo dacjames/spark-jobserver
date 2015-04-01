@@ -4,6 +4,8 @@ import java.io.File
 
 import akka.actor.{ActorSystem, Props}
 import com.typesafe.config.{Config, ConfigFactory}
+import ooyala.common.akka.actor.ProductionReaper
+import ooyala.common.akka.actor.Reaper.WatchMe
 import org.slf4j.LoggerFactory
 
 /**
@@ -28,27 +30,18 @@ object JobManager {
       managerConfig
     }
     val contextName = if (args.length > 1) args(1) else java.util.UUID.randomUUID.toString
-    println("Starting JobManager with config " + config.getConfig("spark").root.render)
-    logger.info("Starting JobManager with config {}", config.getConfig("spark").root.render())
+    logger.info("Starting JobManager context " + contextName + " with config {}",
+      config.getConfig("spark").root.render())
 
     val system = makeSystem(config)
-    //Cluster(system).join//join(Address("akka.tcp", "JobServer", "127.0.0.1", 2551))
-
     val defaultContextConfig = config.getConfig("spark.context-settings")
     val jobManager = system.actorOf(Props(classOf[JobManagerActor], contextName,
       defaultContextConfig, false), "jobManager")
+
+    //Kill process when jobmanager is shutdown.
+    val reaper = system.actorOf(Props[ProductionReaper])
+    reaper ! WatchMe(jobManager)
     system.registerOnTermination(System.exit(0))
-
-    //val jarManager = system.actorOf(Props(classOf[JarManager], jobDAO), "jar-manager")
-    //val supervisor = system.actorOf(Props(classOf[AkkaClusterSupervisor], jobDAO), "context-supervisor")
-    //val jobInfo = system.actorOf(Props(classOf[JobInfoActor], jobDAO, supervisor), "job-info")
-
-
-
-    // Create initial contexts
-    //supervisor ! ContextSupervisorMessages.AddContextsFromConfig
-    //new WebApi(system, config, port, jarManager, supervisor, jobInfo).start()
-
   }
 
   def main(args: Array[String]) {
