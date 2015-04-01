@@ -30,16 +30,16 @@ object JobServer {
   // Allow custom function to create ActorSystem.  An example of why this is useful:
   // we can have something that stores the ActorSystem so it could be shut down easily later.
   def start(args: Array[String], makeSystem: Config => ActorSystem) {
-    val supervisorConfig = ConfigFactory.load("supervisor.conf").withFallback(ConfigFactory.load())
+    val baseConfig = ConfigFactory.load()
     val config = if (args.length > 0) {
       val configFile = new File(args(0))
       if (!configFile.exists()) {
         println("Could not find configuration file " + configFile)
         sys.exit(1)
       }
-      ConfigFactory.parseFile(configFile).withFallback(supervisorConfig)
+      ConfigFactory.parseFile(configFile).withFallback(baseConfig)
     } else {
-      supervisorConfig
+      baseConfig
     }
     logger.info("Starting JobServer with config {}", config.getConfig("spark").root.render())
     val port = config.getInt("spark.jobserver.port")

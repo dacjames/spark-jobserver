@@ -18,16 +18,16 @@ object JobManager {
   // Allow custom function to create ActorSystem.  An example of why this is useful:
   // we can have something that stores the ActorSystem so it could be shut down easily later.
   def start(args: Array[String], makeSystem: Config => ActorSystem) {
-    val managerConfig = ConfigFactory.load("jobmanager.conf").withFallback(ConfigFactory.load())
+    val baseConfig = ConfigFactory.load()
     val config = if (args.length > 0) {
       val configFile = new File(args(0))
       if (!configFile.exists()) {
         println("Could not find configuration file " + configFile)
         sys.exit(1)
       }
-      ConfigFactory.parseFile(configFile).withFallback(managerConfig)
+      ConfigFactory.parseFile(configFile).withFallback(baseConfig)
     } else {
-      managerConfig
+      baseConfig
     }
     val contextName = if (args.length > 1) args(1) else java.util.UUID.randomUUID.toString
     logger.info("Starting JobManager context " + contextName + " with config {}",
