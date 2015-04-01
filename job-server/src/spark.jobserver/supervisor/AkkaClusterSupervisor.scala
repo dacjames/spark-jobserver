@@ -1,5 +1,8 @@
 package spark.jobserver.supervisor
 
+import java.io.{File, IOException}
+import java.lang.ProcessBuilder.Redirect
+
 import akka.actor._
 import akka.cluster.ClusterEvent._
 import akka.cluster.{ClusterEvent, Cluster, Member}
@@ -23,6 +26,7 @@ import scala.collection.JavaConverters._
 
   val config = context.system.settings.config
   val defaultContextConfig = config.getConfig("spark.context-settings")
+  val managerStartPath = config.getString("deploy.manager-start-cmd")
   val contextTimeout = SparkJobUtils.getContextTimeout(config)
 
   implicit val resolveTimeout = Timeout(10 seconds)
@@ -152,7 +156,6 @@ import scala.collection.JavaConverters._
       logger.info("Actor terminated: " + name)
       contexts.foreach { kv => if (kv._2 == ref) contexts.remove(kv._1) }
       resultActors.foreach { kv => if (kv._2 == ref) resultActors.remove(kv._1) }
-
   }
 
   override def postStop():Unit = {
@@ -160,36 +163,26 @@ import scala.collection.JavaConverters._
   }
 
   private def startContext(name: String, contextConfig: Config, isAdHoc: Boolean, timeoutSecs: Int = 1)
-                        (successFunc: ActorRef => Unit)
+                        (successFunc: Unit => Unit)
                         (failureFunc: Throwable => Unit): Unit = {
     require(!(contexts contains name), "There is already a context named "  + name)
     logger.info("Creating a SparkContext named {} remotely", name)
 
+    val pb = new ProcessBuilder(managerStartPath, name)
+    val ptry = Try {
+      val process = pb.start()
+      val exitVal = process.waitFor()
+      if (exitVal != 0)
+      {
+        throw new IOException(s"Process start failed with exit code: $exitVal")
+      }
+      exitVal
+    }
+    ptry match {
+      case Success(_) => successFunc()
+      case Failure(ex) => failureFunc(ex)
+    }
 
-    //def remoteScope(): RemoteScope = RemoteScope(Address("akka.tcp", "JobServer", "127.0.0.1", 2551))
-
-    //val ref = context.system.actorOf(Props(
-    //  classOf[JobManagerActor], name, contextConfig, isAdHoc).
-    //    withDeploy(Deploy(scope = remoteScope())), name)
-
-    //TODO: Launch java process with right classpath (maybe use shell script to launch)
-    //todo: right now cp = ".", JobManager class is not found so process does not start
-    import java.io.File
-    val separator = File.separator; //System.getProperty("file.seperator")
-    val classpath = System.getProperty("java.class.path")
-    val javaHome = System.getProperty("java.home")
-    val javaPath = javaHome + separator + "bin" + separator + "java"
-
-    import spark.jobserver.JobManager
-    logger.info("Launching process: {}", javaPath + " -cp " + classpath + " " + JobManager.getClass.getName)
-    val pb = new ProcessBuilder(javaPath, "-cp", classpath, JobManager.getClass.getName)
-    val process = pb.start()
-    val is = process.getInputStream
-    val es = process.getErrorStream
-    Thread.sleep(30 * 1000)
-
-    logger.info("process stdout after 30 secs: {} ", scala.io.Source.fromInputStream(is).mkString)
-    logger.info("process stderr after 30 secs: {} ", scala.io.Source.fromInputStream(es).mkString)
   }
 
   // Adds the contexts from the config file
