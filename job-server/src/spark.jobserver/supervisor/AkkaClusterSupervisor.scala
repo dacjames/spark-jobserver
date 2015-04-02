@@ -2,6 +2,7 @@ package spark.jobserver.supervisor
 
 import java.io.{File, IOException}
 import java.lang.ProcessBuilder.Redirect
+import java.util.concurrent.TimeUnit
 
 import akka.actor._
 import akka.cluster.ClusterEvent._
@@ -29,7 +30,7 @@ import scala.collection.JavaConverters._
   val managerStartPath = config.getString("deploy.manager-start-cmd")
   val contextTimeout = SparkJobUtils.getContextTimeout(config)
 
-  implicit val resolveTimeout = Timeout(10 seconds)
+  implicit val askTimeout = Timeout(config.getDuration("deploy.ask-timeout", TimeUnit.SECONDS).toInt seconds)
   import context.dispatcher   // to get ExecutionContext for futures
 
   private val contexts = mutable.HashMap.empty[String, ActorRef]
@@ -103,7 +104,6 @@ import scala.collection.JavaConverters._
         originator ! ContextAlreadyExists
       } else {
         startContext(name, mergedConfig, false, contextTimeout) { contextMgr =>
-
           originator ! ContextInitialized
         } { err =>
           originator ! ContextInitError(err)
@@ -124,7 +124,6 @@ import scala.collection.JavaConverters._
 
       // Create JobManagerActor and JobResultActor
       startContext(contextName, mergedConfig, true, contextTimeout) { contextMgr =>
-        Thread.sleep((contextTimeout * 1000 * 0.75).toInt)
         originator ! (contexts(contextName), resultActors(contextName))
       } { err =>
         originator ! ContextInitError(err)
@@ -179,8 +178,9 @@ import scala.collection.JavaConverters._
       }
       exitVal
     }
+    import concurrent._
     ptry match {
-      case Success(_) => successFunc()
+      case Success(_) => future { blocking(Thread.sleep((askTimeout.duration.toMillis * 0.8).toInt)); successFunc() }
       case Failure(ex) => failureFunc(ex)
     }
 

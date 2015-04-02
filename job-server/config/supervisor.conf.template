@@ -31,4 +31,5 @@ akka {
 
 deploy {
   manager-start-cmd = "/Users/ankits/Documents/spark-jobserver/bin/manager_start.sh"
+  ask-timeout = 45s
 }
