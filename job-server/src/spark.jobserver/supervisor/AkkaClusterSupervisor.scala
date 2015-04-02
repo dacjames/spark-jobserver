@@ -180,7 +180,9 @@ import scala.collection.JavaConverters._
     }
     import concurrent._
     ptry match {
-      case Success(_) => future { blocking(Thread.sleep((askTimeout.duration.toMillis * 0.8).toInt)); successFunc() }
+      case Success(_) => future {
+        blocking(Thread.sleep((askTimeout.duration.toMillis * 0.8).toInt));
+        successFunc() }
       case Failure(ex) => failureFunc(ex)
     }
 
