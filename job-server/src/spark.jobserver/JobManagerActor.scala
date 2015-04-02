@@ -103,10 +103,7 @@ import scala.collection.JavaConverters._
 
   implicit val ShortTimeout = Timeout(3 seconds)
 
-  def supervisors(): Set[ActorSelection] = {
-    val supMembers = cluster.state.members.filter{m => m.hasRole("supervisor") && m.status == MemberStatus.Up}
-    supMembers.map { m => context.actorSelection(RootActorPath(m.address) / "user" / "context-supervisor") }
-  }
+  private var supervisor: ActorRef = _
 
   override def preStart(): Unit = {
     cluster.subscribe(self, initialStateMode = initialStateAsEvents, classOf[MemberEvent])
@@ -126,6 +123,7 @@ import scala.collection.JavaConverters._
     case MemberRemoved(member, prevStatus) =>
 
     case Initialize(daoAct, resActor) =>
+      supervisor = sender()
       daoActor = daoAct
       resultActor = resActor
       statusActor = context.actorOf(Props(classOf[JobStatusActor], daoActor), "status-actor")
@@ -305,7 +303,7 @@ import scala.concurrent.Await
   // This method should be called after each job is succeeded or failed
   private def postEachJob() {
     // Delete the JobManagerActor after each adhoc job
-    if (isAdHoc) supervisors().foreach{ sup => sup ! StopContext(contextName) }
+    if (isAdHoc) supervisor ! StopContext(contextName)
   }
 
   // Protocol like "local" is supported in Spark for Jar loading, but not supported in Java.
