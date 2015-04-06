@@ -8,6 +8,7 @@ import org.joda.time.DateTime
 import org.scalatest.{BeforeAndAfter, BeforeAndAfterAll, FunSpecLike, Matchers}
 import spark.jobserver.context.DefaultSparkContextFactory
 import spark.jobserver.io.JobDAO
+import spark.jobserver.io.JobDAOActor.SaveJar
 
 /**
  * Provides a base Config for tests.  Override the vals to configure.  Mix into an object.
@@ -40,6 +41,8 @@ abstract class JobSpecBase(system: ActorSystem) extends TestKit(system) with Imp
 with FunSpecLike with Matchers with BeforeAndAfter with BeforeAndAfterAll with TestJarFinder {
   var dao: JobDAO = _
   var manager: ActorRef = _
+  var daoActor: ActorRef = _
+  var resultActor: ActorRef = _
 
   after {
     ooyala.common.akka.AkkaTestUtils.shutdownAndWait(manager)
@@ -51,7 +54,8 @@ with FunSpecLike with Matchers with BeforeAndAfter with BeforeAndAfterAll with T
 
   protected def uploadJar(dao: JobDAO, jarFilePath: String, appName: String) {
     val bytes = scala.io.Source.fromFile(jarFilePath, "ISO-8859-1").map(_.toByte).toArray
-    dao.saveJar(appName, DateTime.now, bytes)
+    daoActor ! SaveJar(appName,DateTime.now, bytes)
+    //dao.saveJar(appName, DateTime.now, bytes)
   }
 
   protected def uploadTestJar(appName: String = "demo") { uploadJar(dao, testJar.getAbsolutePath, appName) }

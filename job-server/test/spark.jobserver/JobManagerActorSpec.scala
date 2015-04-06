@@ -2,20 +2,26 @@ package spark.jobserver
 
 import akka.actor.Props
 import spark.jobserver.CommonMessages.{JobErroredOut, JobResult}
+import spark.jobserver.io.JobDAOActor
+import spark.jobserver.JobResultActor
 
 class JobManagerActorSpec extends JobManagerSpec {
   import scala.concurrent.duration._
 
   before {
     dao = new InMemoryDAO
+    daoActor = system.actorOf(JobDAOActor.props(dao))
+    resultActor = system.actorOf(Props[JobResultActor])
     manager =
-      system.actorOf(JobManagerActor.props(dao, "test", JobManagerSpec.config, false))
+      system.actorOf(JobManagerActor.props("test", JobManagerSpec.config, false))
+
   }
 
   describe("starting jobs") {
     it("jobs should be able to cache RDDs and retrieve them through getPersistentRDDs") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
+      //expectMsgClass(classOf[JobManagerActor.Initialized])
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", classPrefix + "CacheSomethingJob", emptyConfig,
@@ -30,8 +36,9 @@ class JobManagerActorSpec extends JobManagerSpec {
     }
 
     it ("jobs should be able to cache and retrieve RDDs by name") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
+      //expectMsgClass(classOf[JobManagerActor.Initialized])
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", classPrefix + "CacheRddByNameJob", emptyConfig,

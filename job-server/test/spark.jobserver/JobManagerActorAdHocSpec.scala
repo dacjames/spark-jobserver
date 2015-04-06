@@ -1,6 +1,7 @@
 package spark.jobserver
 
 import akka.actor.Props
+import spark.jobserver.io.JobDAOActor
 
 /**
  * This tests JobManagerActor of AdHoc context.
@@ -10,8 +11,9 @@ class JobManagerActorAdHocSpec extends JobManagerSpec {
 
   before {
     dao = new InMemoryDAO
+    daoActor = system.actorOf(JobDAOActor.props(dao))
     manager =
-      system.actorOf(JobManagerActor.props(dao, "test", JobManagerSpec.config, true))
+      system.actorOf(JobManagerActor.props("test", JobManagerSpec.config, true))
   }
 
 }

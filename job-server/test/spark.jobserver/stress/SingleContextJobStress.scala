@@ -7,7 +7,7 @@ import com.typesafe.config.ConfigFactory
 import org.joda.time.DateTime
 import scala.concurrent.Await
 import spark.jobserver._
-import spark.jobserver.io.JobFileDAO
+import spark.jobserver.io.{JobDAOActor, JobFileDAO}
 
 /**
  * A stress test for launching many jobs within a job context
@@ -37,8 +37,11 @@ object SingleContextJobStress extends App with TestJarFinder {
   val jobDaoDir = jobDaoPrefix + DateTime.now.toString()
   val jobDaoConfig = ConfigFactory.parseMap(Map("spark.jobserver.filedao.rootdir" -> jobDaoDir).asJava)
   val dao = new JobFileDAO(jobDaoConfig)
+  val daoActor = system.actorOf(JobDAOActor.props(dao))
 
   val jobManager = system.actorOf(Props(classOf[JobManagerActor], dao, "c1", "local[4]", config, false))
+
+  val resultActor = system.actorOf(Props[JobResultActor])
 
   private def uploadJar(jarFilePath: String, appName: String) {
     val bytes = scala.io.Source.fromFile(jarFilePath, "ISO-8859-1").map(_.toByte).toArray
@@ -50,8 +53,9 @@ object SingleContextJobStress extends App with TestJarFinder {
   private val emptyConfig = ConfigFactory.parseString("")
 
   // Create the context
-  val res1 = Await.result(jobManager ? Initialize, 3 seconds)
-  assert(res1.getClass == classOf[Initialized])
+  val res1 = Await.result(jobManager ? Initialize(daoActor, resultActor), 3 seconds)
+  assert(res1 == Initialized)
+  //assert(res1.getClass == classOf[Initialized])
 
   uploadJar(demoJarPath, "demo1")
 

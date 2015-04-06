@@ -51,7 +51,7 @@ with ScalatestRouteTest with HttpService {
   class DummyActor extends Actor {
 
     import CommonMessages._
-    import ContextSupervisor._
+    import supervisor.ContextSupervisorMessages._
     import JobInfoActor._
     import JobManagerActor._
 

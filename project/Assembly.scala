@@ -19,6 +19,7 @@ object Assembly {
       case m if m.toLowerCase.matches("meta-inf.*\\.sf$") => MergeStrategy.discard
       case "reference.conf" => MergeStrategy.concat
       case _ => MergeStrategy.first
-    }
+    },
+    test in assembly := {}
   )
 }

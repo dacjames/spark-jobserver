@@ -22,20 +22,23 @@ import scala.util.{Failure, Success, Try}
 
 object JobManagerActor {
   // Messages
-  case class Initialize(daoActor: ActorRef, resultActor: ActorRef)
+  case class Initialize(supervisor: ActorRef, ctxConfig: Config, isAdhoc: Boolean,
+                        daoActor: ActorRef, resultActor: ActorRef)
   case class StartJob(appName: String, classPath: String, config: Config,
                       subscribedEvents: Set[Class[_]])
   case object GetContextInfo
+  case object GetContextName
 
   // Results/Data
   case object Initialized
   case class InitError(t: Throwable)
   case class JobLoadingError(err: Throwable)
   case class ContextInfo(name: String, config: Config, isAdHoc: Boolean)
+  case class ContextName(name: String)
 
   // Akka 2.2.x style actor props for actor creation
-  def props(name: String, config: Config, isAdHoc: Boolean): Props =
-    Props(classOf[JobManagerActor], name, config, isAdHoc)
+  def props(config: Config): Props =
+    Props(classOf[JobManagerActor], config)
 
 }
 
@@ -65,9 +68,7 @@ object JobManagerActor {
  *   }
  * }}}
  */
-class JobManagerActor(contextName: String,
-                      contextConfig: Config,
-                      isAdHoc: Boolean) extends InstrumentedActor {
+class JobManagerActor(contextName: String) extends InstrumentedActor {
   logger.info("JobManager actor inited: " + self)
   import context.dispatcher
   import spark.jobserver.CommonMessages._
@@ -75,6 +76,8 @@ class JobManagerActor(contextName: String,
 
 import scala.collection.JavaConverters._
   import scala.util.control.Breaks._       // for futures to work
+
+  private var contextConfig: Config = _
 
   val config = context.system.settings.config
 
@@ -98,6 +101,7 @@ import scala.collection.JavaConverters._
   private var statusActor: ActorRef = _
   private var resultActor: ActorRef = _
   private var daoActor: ActorRef = _
+  private var isAdHoc: Boolean = _
 
   private val cluster = Cluster(context.system)
 
@@ -122,8 +126,10 @@ import scala.collection.JavaConverters._
     case MemberExited(member) =>
     case MemberRemoved(member, prevStatus) =>
 
-    case Initialize(daoAct, resActor) =>
-      supervisor = sender()
+    case Initialize(sup, ctxConfig, adhoc, daoAct, resActor) =>
+      supervisor = sup
+      contextConfig = ctxConfig
+      isAdHoc = adhoc
       daoActor = daoAct
       resultActor = resActor
       statusActor = context.actorOf(Props(classOf[JobStatusActor], daoActor), "status-actor")
@@ -150,6 +156,9 @@ import scala.collection.JavaConverters._
 
     case GetContextInfo =>
       sender ! ContextInfo(contextName, contextConfig, isAdHoc)
+
+    case GetContextName =>
+      sender ! ContextName(contextName)
   }
 
   def startJobInternal(appName: String,
@@ -302,6 +311,8 @@ import scala.concurrent.Await
 
   // This method should be called after each job is succeeded or failed
   private def postEachJob() {
+    logger.info("JMA " + contextName + " in postEachJob. isAdhoc: " + isAdHoc + " sup: " + supervisor)
+    println("JMA " + contextName + " in postEachJob. isAdhoc: " + isAdHoc + " sup: " + supervisor)
     // Delete the JobManagerActor after each adhoc job
     if (isAdHoc) supervisor ! StopContext(contextName)
   }

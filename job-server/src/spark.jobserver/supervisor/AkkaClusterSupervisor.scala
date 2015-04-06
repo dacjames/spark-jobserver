@@ -35,6 +35,9 @@ import scala.collection.JavaConverters._
 
   private val contexts = mutable.HashMap.empty[String, ActorRef]
   private val resultActors = mutable.HashMap.empty[String, ActorRef]
+  private val contextConfigs = mutable.HashMap.empty[String, Config]
+  private val contextFuncs = mutable.HashMap.empty[String, ((Unit => Unit), (Throwable => Unit))]
+  private val contextAdHocStatuses = mutable.HashMap.empty[String, Boolean]
 
   private val cluster = Cluster(context.system)
 
@@ -56,36 +59,54 @@ import scala.collection.JavaConverters._
           case Success(ref) =>
             context.watch(ref)
             val resultActor = context.actorOf(Props[JobResultActor])
-            (ref ? JobManagerActor.Initialize(daoActor, resultActor)).onComplete {
+
+            (ref ? JobManagerActor.GetContextName).onComplete {
               case Failure(e: Exception) =>
-                logger.error("Exception initializing JobManagerActor: " + ref, e)
+                logger.error("Exception getting context name from " + ref, e)
                 ref ! PoisonPill
-              case Success(JobManagerActor.Initialized) =>
-                (ref ? GetContextInfo).onComplete {
-                  case Failure(e) =>
-                    logger.error("Exception getting context info for JobManagerActor: " + ref, e)
-                    ref ! PoisonPill
-                  case Success(ContextInfo(ctxName, ctxConf, ctxIsAdHoc)) =>
-                    if (contexts contains ctxName) {
-                      logger.error("JobManager with context " + ctxName + " joined, but" +
-                        " context with that name exists")
-                      ref ! PoisonPill
-                    }
-                    else {
-                      logger.info("SparkContext {} joined", ctxName)
-                      contexts(ctxName) = ref
-                      resultActors(ctxName) = resultActor
-                    }
-                  case x =>
-                    logger.warn("Unexpected reply to get context info: {}", x)
-                    ref ! PoisonPill
+              case Success(JobManagerActor.ContextName(ctxName)) =>
+                if (contexts contains ctxName)
+                {
+                  logger.error("Context with name " + ctxName + " already exists")
+                  ref ! PoisonPill
                 }
-              case Success(JobManagerActor.InitError(t)) =>
-                logger.warn("Jobmanager init error {}", t)
-                ref ! PoisonPill
+                var successFunc = {_:Unit => ()}
+                var failureFunc = {_:Throwable => ()}
+                if (contextFuncs.contains(ctxName))
+                {
+                  successFunc = contextFuncs(ctxName)._1
+                  failureFunc = contextFuncs(ctxName)._2
+                  contextFuncs.remove(ctxName)
+                }
+
+                val config = contextConfigs.getOrElse(ctxName, defaultContextConfig)
+                val isAdhoc = contextAdHocStatuses.getOrElse(ctxName, true)
+                contextConfigs.remove(ctxName)
+                contextAdHocStatuses.remove(ctxName)
+                (ref ? JobManagerActor.Initialize(self, config, isAdhoc, daoActor, resultActor)).onComplete {
+                  case Failure(e: Exception) =>
+                    logger.error("Exception initializing " + ref, e)
+                    ref ! PoisonPill
+                    failureFunc(e)
+                  case Success(JobManagerActor.InitError(t)) =>
+                    logger.error("Context init error " + ref, t)
+                    ref ! PoisonPill
+                    failureFunc(t)
+                  case Success(JobManagerActor.Initialized) =>
+                    logger.info("SparkContext {} joined", ctxName)
+                    contexts(ctxName) = ref
+                    resultActors(ctxName) = resultActor
+                    successFunc()
+
+                  case x =>
+                    logger.error("Unexpected reply initializing " + ref + " {}: ", x)
+                    ref ! PoisonPill
+                    failureFunc(new Exception("unexpected reply initing context: " + x))
+                }
               case x =>
-                logger.warn("Unexpected message received from job manager: {}", x)
-            }
+                logger.error("Unexpected reply getting context name from " + ref + ": " + x)
+                ref ! PoisonPill
+             }
           case Failure(e) =>
             logger.warn("Unable to find job manager actor on cluster member " + member.address, e)
         }
@@ -166,9 +187,13 @@ import scala.collection.JavaConverters._
                         (successFunc: Unit => Unit)
                         (failureFunc: Throwable => Unit): Unit = {
     require(!(contexts contains name), "There is already a context named "  + name)
+
+    contextConfigs(name) = contextConfig
+    contextAdHocStatuses(name) = isAdHoc
     logger.info("Creating a SparkContext named {} remotely", name)
 
     val pb = new ProcessBuilder(managerStartPath, name)
+    pb.inheritIO()
     val ptry = Try {
       val process = pb.start()
       val exitVal = process.waitFor()
@@ -178,14 +203,7 @@ import scala.collection.JavaConverters._
       }
       exitVal
     }
-    import concurrent._
-    ptry match {
-      case Success(_) => future {
-        blocking(Thread.sleep((askTimeout.duration.toMillis * 0.8).toInt));
-        successFunc() }
-      case Failure(ex) => failureFunc(ex)
-    }
-
+    contextFuncs(name) = (successFunc, failureFunc)
   }
 
   // Adds the contexts from the config file

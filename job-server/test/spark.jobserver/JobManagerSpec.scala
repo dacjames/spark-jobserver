@@ -17,6 +17,7 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
   protected val stringConfig = ConfigFactory.parseString("input.string = The lazy dog jumped over the fish")
   protected val emptyConfig = ConfigFactory.parseString("spark.master = bar")
 
+
   describe("error conditions") {
     it("should return errors if appName does not match") {
       uploadTestJar()
@@ -26,32 +27,32 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
 
     it("should return error message if classPath does not match") {
       uploadTestJar()
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
+      //expectMsgClass(classOf[JobManagerActor.Initialized])
       manager ! JobManagerActor.StartJob("demo", "no.such.class", emptyConfig, Set.empty[Class[_]])
       expectMsg(CommonMessages.NoSuchClass)
     }
 
     it("should error out if loading garbage jar") {
       uploadJar(dao, "../README.md", "notajar")
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
       manager ! JobManagerActor.StartJob("notajar", "no.such.class", emptyConfig, Set.empty[Class[_]])
       expectMsg(CommonMessages.NoSuchClass)
     }
 
     it("should get WrongJobType if loading SQL job in a plain SparkContext context") {
       uploadTestJar()
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
       manager ! JobManagerActor.StartJob("demo", sqlTestClass, emptyConfig, errorEvents)
       expectMsg(CommonMessages.WrongJobType)
     }
 
     it("should error out if job validation fails") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
-
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", wordCountClass, emptyConfig, allEvents)
       expectMsgClass(classOf[CommonMessages.JobValidationFailed])
@@ -61,8 +62,8 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
 
   describe("starting jobs") {
     it("should start job and return result successfully (all events)") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", wordCountClass, stringConfig, allEvents)
@@ -72,8 +73,8 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
     }
 
     it("should start job more than one time and return result successfully (all events)") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", wordCountClass, stringConfig, allEvents)
@@ -89,8 +90,9 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
     }
 
     it("should start job and return results (sync route)") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
+
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", wordCountClass, stringConfig, syncEvents ++ errorEvents)
@@ -101,8 +103,9 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
     }
 
     it("should start job and return JobStarted (async)") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
+
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", wordCountClass, stringConfig, errorEvents ++ asyncEvents)
@@ -111,8 +114,8 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
     }
 
     it("should return error if job throws an error") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", classPrefix + "MyErrorJob", emptyConfig, errorEvents)
@@ -122,8 +125,8 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
 
     it("job should get jobConfig passed in to StartJob message") {
       val jobConfig = ConfigFactory.parseString("foo.bar.baz = 3")
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", classPrefix + "ConfigCheckerJob", jobConfig,
@@ -135,8 +138,8 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
     }
 
     it("should properly serialize case classes and other job jar classes") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", classPrefix + "ZookeeperJob", stringConfig,
@@ -153,8 +156,8 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
       val jobSleepTimeMillis = 2000L
       val jobConfig = ConfigFactory.parseString("sleep.time.millis = " + jobSleepTimeMillis)
 
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
 
       uploadTestJar()
 
@@ -185,8 +188,8 @@ abstract class JobManagerSpec extends JobSpecBase(JobManagerSpec.getNewSystem) {
     }
 
     it("should start a job that's an object rather than class") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", classPrefix + "SimpleObjectJob", emptyConfig,

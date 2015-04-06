@@ -87,7 +87,7 @@ object SparkJobUtils {
               TimeUnit.MILLISECONDS).toInt / 1000).getOrElse(40)
       case _               =>
         Try(config.getDuration("spark.jobserver.context-creation-timeout",
-              TimeUnit.MILLISECONDS).toInt / 1000).getOrElse(15)
+              TimeUnit.MILLISECONDS).toInt / 1000).getOrElse(30)
     }
   }
 }

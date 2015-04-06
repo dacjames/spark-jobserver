@@ -1,9 +1,10 @@
 package spark.jobserver
 
+import akka.actor.Props
 import com.typesafe.config.ConfigFactory
 import org.apache.spark.sql.catalyst.expressions.Row
 import scala.collection.mutable
-import spark.jobserver.io.JobDAO
+import spark.jobserver.io.{JobDAOActor, JobDAO}
 import spark.jobserver.context.SQLContextFactory
 
 object SqlJobSpec extends JobSpecConfig {
@@ -25,14 +26,17 @@ class SqlJobSpec extends JobSpecBase(SqlJobSpec.getNewSystem) {
 
   before {
     dao = new InMemoryDAO
+    daoActor = system.actorOf(JobDAOActor.props(dao))
+    resultActor = system.actorOf(Props[JobResultActor])
     manager =
-      system.actorOf(JobManagerActor.props(dao, "test", SqlJobSpec.config, false))
+      system.actorOf(JobManagerActor.props("test", SqlJobSpec.config, false))
   }
 
   describe("Spark SQL Jobs") {
     it("should be able to create and cache a table, then query it using separate SQL jobs") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, resultActor)
+      expectMsg(JobManagerActor.Initialized)
+      //expectMsgClass(classOf[JobManagerActor.Initialized])
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", sqlLoaderClass, emptyConfig, syncEvents ++ errorEvents)

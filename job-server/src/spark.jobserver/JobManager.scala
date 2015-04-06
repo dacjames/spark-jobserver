@@ -34,9 +34,8 @@ object JobManager {
       config.getConfig("spark").root.render())
 
     val system = makeSystem(config)
-    val defaultContextConfig = config.getConfig("spark.context-settings")
-    val jobManager = system.actorOf(Props(classOf[JobManagerActor], contextName,
-      defaultContextConfig, false), "jobManager")
+    //val defaultContextConfig = config.getConfig("spark.context-settings")
+    val jobManager = system.actorOf(Props(classOf[JobManagerActor], contextName), "jobManager")
 
     //Kill process when jobmanager is shutdown.
     val reaper = system.actorOf(Props[ProductionReaper])

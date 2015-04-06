@@ -138,8 +138,8 @@ import scala.collection.JavaConverters._
     val resultActor = context.actorOf(Props[JobResultActor])
 
     val ref = context.actorOf(Props(
-      classOf[JobManagerActor], name, contextConfig, isAdHoc), name)
-    (ref ? JobManagerActor.Initialize(daoActor, resultActor))(
+      classOf[JobManagerActor], name), name)
+    (ref ? JobManagerActor.Initialize(self, contextConfig, isAdHoc, daoActor, resultActor))(
       Timeout(timeoutSecs.second)).onComplete {
       case Failure(e: Exception) =>
         logger.error("Exception after sending Initialize to JobManagerActor", e)
