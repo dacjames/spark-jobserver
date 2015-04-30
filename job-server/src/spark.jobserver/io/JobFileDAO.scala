@@ -148,9 +148,10 @@ class JobFileDAO(config: Config) extends JobDAO {
     out.writeUTF(jobInfo.contextName)
     writeJarInfo(out, jobInfo.jarInfo)
     out.writeUTF(jobInfo.classPath)
-    out.writeLong(jobInfo.startTime.getMillis)
-    val time = if (jobInfo.endTime.isEmpty) jobInfo.startTime.getMillis else jobInfo.endTime.get.getMillis
-    out.writeLong(time)
+    val startTime = if (jobInfo.startTime.isEmpty) 0L else jobInfo.startTime.get.getMillis
+    out.writeLong(startTime)
+    val endTime = if (jobInfo.endTime.isEmpty) startTime else jobInfo.endTime.get.getMillis
+    out.writeLong(endTime)
     val errorStr = if (jobInfo.error.isEmpty) "" else jobInfo.error.get.toString
     out.writeUTF(errorStr)
   }
@@ -165,7 +166,7 @@ class JobFileDAO(config: Config) extends JobDAO {
     in.readUTF,
     readJarInfo(in),
     in.readUTF,
-    new DateTime(in.readLong),
+    Some(new DateTime(in.readLong)),
     Some(new DateTime(in.readLong)),
     readError(in))
 

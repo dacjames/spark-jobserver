@@ -1,5 +1,7 @@
 package spark.jobserver
 
+import java.util.concurrent.ExecutorService
+
 import akka.actor.{ActorRef, Props, PoisonPill}
 import com.typesafe.config.Config
 import java.net.{URI, URL}
@@ -7,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import ooyala.common.akka.InstrumentedActor
 import org.apache.spark.{ SparkEnv, SparkContext }
 import org.joda.time.DateTime
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Promise, Future}
 import scala.util.{Failure, Success, Try}
 import spark.jobserver.ContextSupervisor.StopContext
 import spark.jobserver.io.{JobDAOActor, JobDAO, JobInfo, JarInfo}
@@ -19,6 +21,7 @@ object JobManagerActor {
                          contextName: String, contextConfig: Config, isAdHoc: Boolean, supervisor: ActorRef)
   case class StartJob(appName: String, classPath: String, config: Config,
                       subscribedEvents: Set[Class[_]])
+  case object DequeueTick
 
   // Results/Data
   case class Initialized(resultActor: ActorRef)
@@ -78,6 +81,7 @@ class JobManagerActor extends InstrumentedActor {
 
   private val jobCacheSize = Try(config.getInt("spark.job-cache.max-entries")).getOrElse(10000)
   private val jobCacheEnabled = Try(config.getBoolean("spark.job-cache.enabled")).getOrElse(false)
+  private val jobQueueEnabled = Try(config.getBoolean("spark.job-queue.enabled")).getOrElse(false)
   // Use Spark Context's built in classloader when SPARK-1230 is merged.
   private val jarLoader = new ContextURLClassLoader(Array[URL](), getClass.getClassLoader)
 
@@ -92,6 +96,20 @@ class JobManagerActor extends InstrumentedActor {
   private var isAdHoc: Boolean = _
   private var supervisor: ActorRef = _
 
+  import scala.concurrent.duration._
+  private val tickDelay = 500.millis
+
+  private val jobQueue =
+    collection.mutable.Queue[(JobJarInfo, JobInfo, Config, ActorRef, ContextLike, SparkEnv, ActorRef)]()
+  private var queueExecutor: ExecutionContext = null
+
+  override def preStart(): Unit = {
+    if (jobQueueEnabled) {
+      import java.util.concurrent.Executors
+      queueExecutor = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(1))
+      context.system.scheduler.scheduleOnce(tickDelay, self, DequeueTick)(queueExecutor)
+    }
+  }
 
   override def postStop() {
     logger.info("Shutting down SparkContext {}", contextName)
@@ -129,6 +147,19 @@ class JobManagerActor extends InstrumentedActor {
 
     case StartJob(appName, classPath, jobConfig, events) =>
       startJobInternal(appName, classPath, jobConfig, events, jobContext, sparkEnv, rddManagerActor)
+
+    case DequeueTick =>
+      context.system.scheduler.scheduleOnce(tickDelay, self, DequeueTick)(queueExecutor)
+      if (jobQueue.size > 0) {
+        if (currentRunningJobs.getAndIncrement < maxRunningJobs) {
+          val queuedJob = jobQueue.dequeue()
+          logger.info("Launching queued job {}", queuedJob._2.jobId)
+          createJobFuture(queuedJob._1, queuedJob._2, queuedJob._3, queuedJob._4,
+            queuedJob._5, queuedJob._6, queuedJob._7)
+        } else {
+          currentRunningJobs.decrementAndGet()
+        }
+      }
   }
 
   def startJobInternal(appName: String,
@@ -186,10 +217,10 @@ class JobManagerActor extends InstrumentedActor {
       resultActor ! Subscribe(jobId, sender, events)
       statusActor ! Subscribe(jobId, sender, events)
 
-      val jobInfo = JobInfo(jobId, contextName, jarInfo, classPath, DateTime.now(), None, None)
+      val jobInfo = JobInfo(jobId, contextName, jarInfo, classPath, Some(DateTime.now()), None, None)
       future =
         Option(getJobFuture(jobJarInfo, jobInfo, jobConfig, sender, jobContext, sparkEnv,
-                            rddManagerActor))
+                            rddManagerActor, (jarInfo, classPath)))
     }
 
     future
@@ -201,22 +232,41 @@ class JobManagerActor extends InstrumentedActor {
                            subscriber: ActorRef,
                            jobContext: ContextLike,
                            sparkEnv: SparkEnv,
-                           rddManagerActor: ActorRef): Future[Any] = {
+                           rddManagerActor: ActorRef,
+                           jarInfoAndCp: (JarInfo, String)): Future[Any] = {
+    val jobId = jobInfo.jobId
+
+    // Atomically increment the number of currently running jobs. If the old value already exceeded the
+    // limit, decrement it back, queue the job, notify the sender of queueing, and return a dummy future with
+    // nothing in it.
+    if (currentRunningJobs.getAndIncrement() >= maxRunningJobs) {
+      currentRunningJobs.decrementAndGet()
+      if (jobQueueEnabled && !isAdHoc) {
+        jobQueue.enqueue((jobJarInfo, jobInfo, jobConfig, subscriber, jobContext, sparkEnv, rddManagerActor))
+        statusActor ! JobQueued(jobId, contextName, DateTime.now(), jarInfoAndCp._1, jarInfoAndCp._2)
+        sender ! JobQueued(jobId, contextName, DateTime.now(), jarInfoAndCp._1, jarInfoAndCp._2)
+        Future[Any](None)
+      } else {
+        sender ! NoJobSlotsAvailable
+        Future[Any](None)
+      }
+    } else {
+      createJobFuture(jobJarInfo, jobInfo, jobConfig, subscriber, jobContext, sparkEnv, rddManagerActor)
+    }
+
+  }
+
+  private def createJobFuture(jobJarInfo: JobJarInfo, jobInfo: JobInfo, jobConfig: Config,
+                              subscriber: ActorRef, jobContext: ContextLike, sparkEnv: SparkEnv,
+                              rddManagerActor: ActorRef): Future[Any] = {
+
     // Use the SparkContext's ActorSystem threadpool for the futures, so we don't corrupt our own
     implicit val executionContext = sparkEnv.actorSystem
 
     val jobId = jobInfo.jobId
     val constructor = jobJarInfo.constructor
-    logger.info("Starting Spark job {} [{}]...", jobId: Any, jobJarInfo.className)
 
-    // Atomically increment the number of currently running jobs. If the old value already exceeded the
-    // limit, decrement it back, send an error message to the sender, and return a dummy future with
-    // nothing in it.
-    if (currentRunningJobs.getAndIncrement() >= maxRunningJobs) {
-      currentRunningJobs.decrementAndGet()
-      sender ! NoJobSlotsAvailable(maxRunningJobs)
-      return Future[Any](None)
-    }
+    logger.info("Starting Spark job {} [{}]...", jobId: Any, jobJarInfo.className)
 
     Future {
       org.slf4j.MDC.put("jobId", jobId)
@@ -247,7 +297,7 @@ class JobManagerActor extends InstrumentedActor {
             throw err
           }
           case SparkJobValid => {
-            statusActor ! JobStarted(jobId: String, contextName, jobInfo.startTime)
+            statusActor ! JobStarted(jobId: String, contextName, jobInfo.startTime.get)
             job.runJob(jobC, jobConfig)
           }
         }

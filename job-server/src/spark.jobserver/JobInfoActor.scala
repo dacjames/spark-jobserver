@@ -33,7 +33,8 @@ class JobInfoActor(jobDao: ActorRef, contextSupervisor: ActorRef) extends Instru
     case GetJobStatuses(limit) =>
       import akka.pattern.{ask, pipe}
       val req = (jobDao ? JobDAOActor.GetJobInfos).mapTo[JobDAOActor.JobInfos].map { jobInfos =>
-        val infos = jobInfos.jobInfos.values.toSeq.sortBy(_.startTime.toString())
+        //make queued jobs come last
+        val infos = jobInfos.jobInfos.values.toSeq.sortBy(_.startTime.map(_.toString()).getOrElse("Z"))
         if (limit.isDefined) {
           infos.takeRight(limit.get)
         }

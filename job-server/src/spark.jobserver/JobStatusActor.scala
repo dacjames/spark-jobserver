@@ -7,7 +7,7 @@ import ooyala.common.akka.metrics.YammerMetrics
 import org.joda.time.DateTime
 import scala.collection.mutable
 import scala.util.Try
-import spark.jobserver.io.{JobDAOActor, JobInfo, JobDAO}
+import spark.jobserver.io.{JarInfo, JobDAOActor, JobInfo, JobDAO}
 
 object JobStatusActor {
   case class JobInit(jobInfo: JobInfo)
@@ -62,9 +62,16 @@ class JobStatusActor(jobDao: ActorRef) extends InstrumentedActor with YammerMetr
       val jobSubscribers = subscribers.getOrElseUpdate(jobId, newMultiMap())
       events.foreach { event => jobSubscribers.addBinding(event, receiver) }
 
+    case msg: JobQueued =>
+      if (!infos.contains(msg.jobId)) {
+        infos(msg.jobId) = JobInfo(
+          msg.jobId, msg.context, msg.jarInfo, msg.classPath, None, None, None)
+      }
+      processStatus(msg, "queued"){case (info,msg) => info}
+
     case JobInit(jobInfo) =>
       // TODO (kelvinchu): Check if the jobId exists in the persistence store already
-      if (!infos.contains(jobInfo.jobId)) {
+      if (!infos.contains(jobInfo.jobId) || infos(jobInfo.jobId).startTime.isEmpty) {
         infos(jobInfo.jobId) = jobInfo
       } else {
         sender ! JobInitAlready
@@ -73,7 +80,7 @@ class JobStatusActor(jobDao: ActorRef) extends InstrumentedActor with YammerMetr
     case msg: JobStarted =>
       processStatus(msg, "started") {
         case (info, msg) =>
-          info.copy(startTime = msg.startTime)
+          info.copy(startTime = Some(msg.startTime))
       }
 
     case msg: JobFinished =>

@@ -208,7 +208,9 @@ class WebApi(system: ActorSystem,
           future.map {
             case NoSuchJobId =>
               notFound(ctx, "No such job ID " + jobId.toString)
-            case JobInfo(_, _, _, _, _, None, _) =>
+            case JobInfo(_, _, _, _, None, None, _) =>
+              ctx.complete(Map(StatusKey -> "QUEUED"))
+            case JobInfo(_, _, _, _, Some(_), None, _) =>
               ctx.complete(Map(StatusKey -> "RUNNING"))
             case JobInfo(_, _, _, _, _, _, Some(ex)) =>
               ctx.complete(Map(StatusKey -> "ERROR", "ERROR" -> formatException(ex)))
@@ -236,10 +238,11 @@ class WebApi(system: ActorSystem,
                   "classPath" -> info.classPath,
                   "context"   -> (if (info.contextName.isEmpty) "<<ad-hoc>>" else info.contextName),
                   "duration" -> getJobDurationString(info)) ++ (info match {
-                    case JobInfo(_, _, _, _, _, None, _)       => Map(StatusKey -> "RUNNING")
-                    case JobInfo(_, _, _, _, _, _, Some(ex))   => Map(StatusKey -> "ERROR",
-                                                                      ResultKey -> formatException(ex))
-                    case JobInfo(_, _, _, _, _, Some(e), None) => Map(StatusKey -> "FINISHED")
+                    case JobInfo(_, _, _, _, None, None, _)          => Map(StatusKey -> "QUEUED")
+                    case JobInfo(_, _, _, _, Some(_), None, _)       => Map(StatusKey -> "RUNNING")
+                    case JobInfo(_, _, _, _, _, _, Some(ex))         => Map(StatusKey -> "ERROR",
+                                                                            ResultKey -> formatException(ex))
+                    case JobInfo(_, _, _, _, Some(_), Some(e), None) => Map(StatusKey -> "FINISHED")
                   })
               }
               ctx.complete(jobReport)
@@ -288,6 +291,12 @@ class WebApi(system: ActorSystem,
                       ctx.complete(202, Map[String, Any](
                                           StatusKey -> "STARTED",
                                           ResultKey -> Map("jobId" -> jobId, "context" -> context)))
+                    case JobQueued(jobId, context, _, _, _) =>
+                      jobInfo ! StoreJobConfig(jobId, postedJobConfig)
+                      ctx.complete(202, Map[String, Any](
+                        StatusKey -> "QUEUED",
+                        ResultKey -> Map("jobId" -> jobId, "context" -> context)
+                      ))
                     case JobValidationFailed(_, _, ex) =>
                       ctx.complete(400, errMap(ex, "VALIDATION FAILED"))
                     case NoSuchApplication => notFound(ctx, "appName " + appName + " not found")

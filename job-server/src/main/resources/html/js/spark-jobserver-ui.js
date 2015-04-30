@@ -19,7 +19,7 @@ function getJobs() {
 
         if(job.status == 'ERROR') {
           $('#failedJobsTable > tbody:last').append(items.join(""));
-        } else if(job.status == 'RUNNING') {
+        } else if(job.status == 'RUNNING' || job.status == 'QUEUED') {
           $('#runningJobsTable > tbody:last').append(items.join(""));
         } else {
           $('#completedJobsTable > tbody:last').append(items.join(""));

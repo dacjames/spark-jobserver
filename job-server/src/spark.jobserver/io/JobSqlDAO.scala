@@ -32,13 +32,13 @@ class JobSqlDAO(config: Config) extends JobDAO {
 
   // Explicitly avoiding to label 'jarId' as a foreign key to avoid dealing with
   // referential integrity constraint violations.
-  class Jobs(tag: Tag) extends Table[(String, String, Int, String, Timestamp,
+  class Jobs(tag: Tag) extends Table[(String, String, Int, String, Option[Timestamp],
                                       Option[Timestamp], Option[String])] (tag, "JOBS") {
     def jobId = column[String]("JOB_ID", O.PrimaryKey)
     def contextName = column[String]("CONTEXT_NAME")
     def jarId = column[Int]("JAR_ID") // FK to JARS table
     def classPath = column[String]("CLASSPATH")
-    def startTime = column[Timestamp]("START_TIME")
+    def startTime = column[Option[Timestamp]]("START_TIME")
     def endTime = column[Option[Timestamp]]("END_TIME")
     def error = column[Option[String]]("ERROR")
     def * = (jobId, contextName, jarId, classPath, startTime, endTime, error)
@@ -238,7 +238,7 @@ class JobSqlDAO(config: Config) extends JobDAO {
 
         // Extract out the the JobInfo members and convert any members to appropriate SQL types
         val JobInfo(jobId, contextName, _, classPath, startTime, endTime, error) = jobInfo
-        val (start, endOpt, errOpt) = (convertDateJodaToSql(startTime),
+        val (start, endOpt, errOpt) = (startTime.map(convertDateJodaToSql(_)),
           endTime.map(convertDateJodaToSql(_)),
           error.map(_.getMessage))
 
@@ -271,7 +271,7 @@ class JobSqlDAO(config: Config) extends JobDAO {
             context,
             JarInfo(app, convertDateSqlToJoda(upload)),
             classpath,
-            convertDateSqlToJoda(start),
+            start.map(convertDateSqlToJoda(_)),
             end.map(convertDateSqlToJoda(_)),
             err.map(new Throwable(_)))
         }.toMap
