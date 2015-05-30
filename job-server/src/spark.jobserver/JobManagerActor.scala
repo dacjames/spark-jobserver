@@ -247,7 +247,7 @@ class JobManagerActor extends InstrumentedActor {
         sender ! JobQueued(jobId, contextName, DateTime.now(), jarInfoAndCp._1, jarInfoAndCp._2)
         Future[Any](None)
       } else {
-        sender ! NoJobSlotsAvailable
+        sender ! NoJobSlotsAvailable(maxRunningJobs)
         Future[Any](None)
       }
     } else {
