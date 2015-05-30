@@ -44,7 +44,7 @@ with ScalatestRouteTest with HttpService {
   val routes = api.myRoutes
 
   val dt = DateTime.parse("2013-05-29T00Z")
-  val baseJobInfo = JobInfo("foo-1", "context", JarInfo("demo", dt), "com.abc.meme", dt, None, None)
+  val baseJobInfo = JobInfo("foo-1", "context", JarInfo("demo", dt), "com.abc.meme", Some(dt), None, None)
   val StatusKey = "status"
   val ResultKey = "result"
 
@@ -97,7 +97,7 @@ with ScalatestRouteTest with HttpService {
                                                           new IllegalArgumentException("foo")))
       case StartJob(_, _, config, events)     =>
         statusActor ! Subscribe("foo", sender, events)
-        statusActor ! JobStatusActor.JobInit(JobInfo("foo", "context", null, "", dt, None, None))
+        statusActor ! JobStatusActor.JobInit(JobInfo("foo", "context", null, "", Some(dt), None, None))
         statusActor ! JobStarted("foo", "context1", dt)
         val map = config.entrySet().asScala.map { entry => (entry.getKey -> entry.getValue.unwrapped) }.toMap
         if (events.contains(classOf[JobResult])) sender ! JobResult("foo", map)
@@ -136,13 +136,13 @@ with ScalatestRouteTest with HttpService {
         status should be (OK)
         responseAs[Seq[Map[String, String]]] should be (Seq(
           Map("jobId" -> "foo-1",
-              "startTime" -> "2013-05-29T00:00:00.000Z",
+              "startTime" -> "Some(2013-05-29T00:00:00.000Z)",
               "classPath" -> "com.abc.meme",
               "context"  -> "context",
               "duration" -> "Job not done yet",
               StatusKey -> "RUNNING"),
           Map("jobId" -> "foo-1",
-              "startTime" -> "2013-05-29T00:00:00.000Z",
+              "startTime" -> "Some(2013-05-29T00:00:00.000Z)",
               "classPath" -> "com.abc.meme",
               "context"  -> "context",
               "duration" -> "300.0 secs",
