@@ -10,6 +10,7 @@ import ooyala.common.akka.InstrumentedActor
 import org.apache.spark.{ SparkEnv, SparkContext }
 import org.joda.time.DateTime
 import scala.concurrent.{ExecutionContext, Promise, Future}
+import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 import spark.jobserver.ContextSupervisor.StopContext
 import spark.jobserver.io.{JobDAOActor, JobDAO, JobInfo, JarInfo}
@@ -301,7 +302,14 @@ class JobManagerActor extends InstrumentedActor {
             job.runJob(jobC, jobConfig)
           }
         }
-      } finally {
+      }
+
+      catch {
+        case NonFatal(e) => throw e
+        case e: Throwable => throw new Exception("wrapped fatal", e)
+      }
+
+      finally {
         org.slf4j.MDC.remove("jobId")
       }
     }.andThen {
