@@ -42,6 +42,7 @@ with FunSpecLike with Matchers with BeforeAndAfter with BeforeAndAfterAll {
     it("should store a job configuration") {
       actor ! StoreJobConfig(jobId, jobConfig)
       expectMsg(JobConfigStored)
+      println("dao configs: " + dao.getJobConfigs)
       dao.getJobConfigs.get(jobId) should be (Some(jobConfig))
     }
 
