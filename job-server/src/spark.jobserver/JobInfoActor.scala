@@ -78,7 +78,8 @@ class JobInfoActor(jobDao: ActorRef, contextSupervisor: ActorRef) extends Instru
       }.pipeTo(sender)
 
     case StoreJobConfig(jobId, jobConfig) =>
-      jobDao ! JobDAOActor.SaveJobConfig(jobId, jobConfig)
-      sender ! JobConfigStored
+      import akka.pattern.{ask,pipe}
+      (jobDao ? JobDAOActor.SaveJobConfig(jobId, jobConfig)).
+        map { _ => JobConfigStored }.pipeTo(sender())
   }
 }

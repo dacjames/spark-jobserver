@@ -35,6 +35,7 @@ object JobDAOActor {
 
   case object InvalidJar //SaveJar?
   case object JarStored //SaveJar?
+  case object Stored //SaveJobConfig?
 
   def props(dao: JobDAO): Props = Props(classOf[JobDAOActor], dao)
 }
@@ -60,6 +61,7 @@ class JobDAOActor(dao:JobDAO) extends InstrumentedActor {
 
     case SaveJobConfig(jobId,jobConfig) =>
       dao.saveJobConfig(jobId,jobConfig)
+      sender() ! Stored
 
     case GetJobConfigs =>
       sender() ! JobConfigs(dao.getJobConfigs)
