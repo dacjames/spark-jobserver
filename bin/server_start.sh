@@ -1,5 +1,7 @@
 #!/bin/bash
 # Script to start the job server
+# Extra arguments will be spark-submit options, for example
+#  ./server_start.sh --jars cassandra-spark-connector.jar
 set -e
 
 get_abs_script_path() {
@@ -16,7 +18,7 @@ GC_OPTS="-XX:+UseConcMarkSweepGC
          -XX:MaxPermSize=512m
          -XX:+CMSClassUnloadingEnabled "
 
-JAVA_OPTS="-Xmx5g -XX:MaxDirectMemorySize=512M
+JAVA_OPTS="-XX:MaxDirectMemorySize=512M
            -XX:+HeapDumpOnOutOfMemoryError -Djava.net.preferIPv4Stack=true
            -Dcom.sun.management.jmxremote.port=9999
            -Dcom.sun.management.jmxremote.authenticate=false
@@ -34,3 +36,4 @@ fi
 
 exec java -cp $CLASSPATH $GC_OPTS $JAVA_OPTS $LOGGING_OPTS $CONFIG_OVERRIDES $MAIN $conffile 2>&1 &
 echo $! > $PIDFILE
+

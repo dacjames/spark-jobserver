@@ -42,7 +42,7 @@ if [ -z "$LOG_DIR" ]; then
 fi
 mkdir -p $LOG_DIR
 
-LOGGING_OPTS="-Dlog4j.configuration=log4j-server.properties
+LOGGING_OPTS="-Dlog4j.configuration=file:$appdir/log4j-server.properties
               -DLOG_DIR=$LOG_DIR"
 
 # For Mesos
@@ -50,6 +50,10 @@ CONFIG_OVERRIDES="-Dspark.executor.uri=$SPARK_EXECUTOR_URI "
 # For Mesos/Marathon, use the passed-in port
 if [ "$PORT" != "" ]; then
   CONFIG_OVERRIDES+="-Dspark.jobserver.port=$PORT "
+fi
+
+if [ -z "$DRIVER_MEMORY" ]; then
+  DRIVER_MEMORY=1G
 fi
 
 # This needs to be exported for standalone mode so drivers can connect to the Spark cluster

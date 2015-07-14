@@ -1,7 +1,6 @@
 package spark.jobserver
 
-import com.typesafe.config.{Config, ConfigFactory}
-import org.apache.spark._
+import com.typesafe.config.Config
 import org.apache.spark.sql.SQLContext
 
 /**
@@ -20,9 +19,9 @@ object SqlLoaderJob extends SparkSqlJob {
   def validate(sql: SQLContext, config: Config): SparkJobValidation = SparkJobValid
 
   def runJob(sql: SQLContext, config: Config): Any = {
-    import sql.createSchemaRDD
+    import sql.implicits._
     val addrRdd = sql.sparkContext.parallelize(addresses)
-    addrRdd.registerTempTable("addresses")
+    addrRdd.toDF().registerTempTable("addresses")
     addrRdd.count()
   }
 }

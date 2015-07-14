@@ -7,6 +7,7 @@ import spark.jobserver.io.JobDAOActor
 
 class JobManagerActorSpec extends JobManagerSpec(adhoc = false) {
   import scala.concurrent.duration._
+  import akka.testkit._
 
   before {
     dao = new InMemoryDAO
@@ -33,13 +34,13 @@ class JobManagerActorSpec extends JobManagerSpec(adhoc = false) {
     }
 
     it ("jobs should be able to cache and retrieve RDDs by name") {
-      manager ! JobManagerActor.Initialize(daoActor, None, "ctx", JobManagerSpec.config, false, supervisor)
+      manager ! JobManagerActor.Initialize(daoActor, None, "test", JobManagerSpec.config, false, supervisor)
       expectMsgClass(classOf[JobManagerActor.Initialized])
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", classPrefix + "CacheRddByNameJob", emptyConfig,
         errorEvents ++ syncEvents)
-      expectMsgPF(1 second, "Expected a JobResult or JobErroredOut message!") {
+      expectMsgPF(1.second.dilated, "Expected a JobResult or JobErroredOut message!") {
         case JobResult(_, sum: Int) => sum should equal (1 + 4 + 9 + 16 + 25)
         case JobErroredOut(_, _, error: Throwable) => throw error
       }

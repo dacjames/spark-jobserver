@@ -100,6 +100,12 @@ class JobStatusActor(jobDao: ActorRef) extends InstrumentedActor with YammerMetr
         case (info, msg) =>
           info.copy(endTime = Some(msg.endTime), error = Some(msg.err))
       }
+
+    case msg: JobKilled =>
+      processStatus(msg, "killed", remove = true) {
+        case (info, msg) =>
+          info.copy(endTime = Some(msg.endTime))
+      }
   }
 
   private def processStatus[M <: StatusMessage](msg: M, logMessage: String, remove: Boolean = false)

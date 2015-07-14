@@ -5,16 +5,23 @@ import java.io.{FileOutputStream, BufferedOutputStream, File}
 import java.sql.Timestamp
 import org.joda.time.DateTime
 import org.slf4j.LoggerFactory
+import scala.slick.driver.JdbcProfile
 import scala.slick.jdbc.meta.MTable
-
+import scala.reflect.runtime.universe
 
 class JobSqlDAO(config: Config) extends JobDAO {
-  import scala.slick.driver.H2Driver.simple._
+  val slickDriverClass = config.getString("spark.jobserver.sqldao.slick-driver")
+  val jdbcDriverClass = config.getString("spark.jobserver.sqldao.jdbc-driver")
+
+  val runtimeMirror = universe.runtimeMirror(getClass.getClassLoader)
+  val profileModule = runtimeMirror.staticModule(slickDriverClass)
+  val profile = runtimeMirror.reflectModule(profileModule).instance.asInstanceOf[JdbcProfile]
+  import profile.simple._
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  private val rootDir = getOrElse(config.getString("spark.jobserver.sqldao.rootdir"),
-    "/tmp/spark-jobserver/sqldao/data")
+  // NOTE: below is only needed for H2 drivers
+  private val rootDir = config.getString("spark.jobserver.sqldao.rootdir")
   private val rootDirFile = new File(rootDir)
   logger.info("rootDir is " + rootDirFile.getAbsolutePath)
 
@@ -54,9 +61,8 @@ class JobSqlDAO(config: Config) extends JobDAO {
   val configs = TableQuery[Configs]
 
   // DB initialization
-  val defaultJdbcUrl = "jdbc:h2:file:" + rootDir + "/h2-db"
-  val jdbcUrl = getOrElse(config.getString("spark.jobserver.sqldao.jdbc.url"), defaultJdbcUrl)
-  val db = Database.forURL(jdbcUrl, driver = "org.h2.Driver")
+  val jdbcUrl = config.getString("spark.jobserver.sqldao.jdbc.url")
+  val db = Database.forURL(jdbcUrl, driver = jdbcDriverClass)
 
   // Server initialization
   init()
@@ -91,7 +97,7 @@ class JobSqlDAO(config: Config) extends JobDAO {
 
   // Check if a single exist
   private def isTableExist(tableName: String)(implicit session: Session): Boolean =
-    !MTable.getTables(tableName).list().isEmpty
+    !MTable.getTables(tableName).list.isEmpty
 
   // Check if "all tables don't exist" is true
   private def isAllTablesNotExist()(implicit session: Session): Boolean =

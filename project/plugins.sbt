@@ -10,14 +10,9 @@ addSbtPlugin("org.scalastyle" %% "scalastyle-sbt-plugin" % "0.6.0")
 
 resolvers += Classpaths.sbtPluginReleases
 
-addSbtPlugin("org.scoverage" %% "sbt-scoverage" % "0.98.0")
+addSbtPlugin("org.scoverage" %% "sbt-scoverage" % "1.0.4")
 
-resolvers += Resolver.url(
-  "bintray-sbt-plugin-releases",
-    url("http://dl.bintray.com/content/sbt/sbt-plugin-releases"))(
-        Resolver.ivyStylePatterns)
-
-addSbtPlugin("me.lessis" % "bintray-sbt" % "0.1.1")
+addSbtPlugin("me.lessis" % "bintray-sbt" % "0.2.1")
 
 addSbtPlugin("me.lessis" % "ls-sbt" % "0.1.3")
 

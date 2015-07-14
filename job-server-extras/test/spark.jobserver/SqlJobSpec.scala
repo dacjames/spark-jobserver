@@ -12,7 +12,7 @@ object SqlJobSpec extends JobSpecConfig {
   override val contextFactory = classOf[SQLContextFactory].getName
 }
 
-class SqlJobSpec extends JobSpecBase(SqlJobSpec.getNewSystem) {
+class SqlJobSpec extends ExtrasJobSpecBase(SqlJobSpec.getNewSystem) {
   import scala.concurrent.duration._
   import CommonMessages._
   import JobManagerSpec.MaxJobsPerContext
@@ -32,23 +32,22 @@ class SqlJobSpec extends JobSpecBase(SqlJobSpec.getNewSystem) {
     daoActor = system.actorOf(JobDAOActor.props(dao))
     manager = system.actorOf(JobManagerActor.props())
     supervisor = TestProbe().ref
-      //system.actorOf(JobManagerActor.props(dao, "test", SqlJobSpec.config, false))
   }
 
   describe("Spark SQL Jobs") {
     it("should be able to create and cache a table, then query it using separate SQL jobs") {
-      manager ! JobManagerActor.Initialize(daoActor, None, "ctx", sqlContextConfig, true, supervisor)
+      manager ! JobManagerActor.Initialize(daoActor, None, "test", sqlContextConfig, false, supervisor)
       expectMsgClass(classOf[JobManagerActor.Initialized])
 
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", sqlLoaderClass, emptyConfig, syncEvents ++ errorEvents)
-      expectMsgPF(3 seconds, "Did not get JobResult") {
+      expectMsgPF(6 seconds, "Did not get JobResult") {
         case JobResult(_, result: Long) => result should equal (3L)
       }
       expectNoMsg()
 
       manager ! JobManagerActor.StartJob("demo", sqlQueryClass, queryConfig, syncEvents ++ errorEvents)
-      expectMsgPF(3 seconds, "Did not get JobResult") {
+      expectMsgPF(6 seconds, "Did not get JobResult") {
         case JobResult(_, result: Array[Row]) =>
           result should have length (2)
           result(0)(0) should equal ("Bob")

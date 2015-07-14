@@ -2,6 +2,7 @@ package spark.jobserver
 
 import java.util.concurrent.ExecutorService
 
+import java.util.concurrent.Executors._
 import akka.actor.{ActorRef, Props, PoisonPill}
 import com.typesafe.config.Config
 import java.net.{URI, URL}
@@ -11,6 +12,7 @@ import org.apache.spark.{ SparkEnv, SparkContext }
 import org.joda.time.DateTime
 import scala.concurrent.{ExecutionContext, Promise, Future}
 import scala.util.control.NonFatal
+import scala.concurrent.{ Future, ExecutionContext }
 import scala.util.{Failure, Success, Try}
 import spark.jobserver.ContextSupervisor.StopContext
 import spark.jobserver.io.{JobDAOActor, JobDAO, JobInfo, JarInfo}
@@ -23,6 +25,7 @@ object JobManagerActor {
   case class StartJob(appName: String, classPath: String, config: Config,
                       subscribedEvents: Set[Class[_]])
   case object DequeueTick
+  case class KillJob(jobId: String)
 
   // Results/Data
   case class Initialized(resultActor: ActorRef)
@@ -65,15 +68,15 @@ class JobManagerActor extends InstrumentedActor {
   import JobManagerActor._
   import scala.util.control.Breaks._
   import collection.JavaConverters._
-  import context.dispatcher       // for futures to work
 
   val config = context.system.settings.config
+  private val maxRunningJobs = SparkJobUtils.getMaxRunningJobs(config)
+  val executionContext = ExecutionContext.fromExecutorService(newFixedThreadPool(maxRunningJobs))
 
   var jobContext: ContextLike = _
   var sparkEnv: SparkEnv = _
   protected var rddManagerActor: ActorRef = _
 
-  private val maxRunningJobs = SparkJobUtils.getMaxRunningJobs(config)
   private val currentRunningJobs = new AtomicInteger(0)
 
   // When the job cache retrieves a jar from the DAO, it also adds it to the SparkContext for distribution
@@ -128,16 +131,19 @@ class JobManagerActor extends InstrumentedActor {
       supervisor = sup
 
       try {
+        logger.info("recvd initialize")
         // Load side jars first in case the ContextFactory comes from it
         getSideJars(contextConfig).foreach { jarUri =>
           jarLoader.addURL(new URL(convertJarUriSparkToJava(jarUri)))
         }
         jobContext = createContextFromConfig()
+        logger.info("created context: " + jobContext)
         sparkEnv = SparkEnv.get
         rddManagerActor = context.actorOf(Props(classOf[RddManagerActor], jobContext.sparkContext),
                                           "rdd-manager-actor")
         jobCache = new JobCache(jobCacheSize, daoActor, jobContext.sparkContext, jarLoader, jobCacheEnabled)
         getSideJars(contextConfig).foreach { jarUri => jobContext.sparkContext.addJar(jarUri) }
+        logger.info("sending initialized")
         sender ! Initialized(resultActor)
       } catch {
         case t: Throwable =>
@@ -161,6 +167,12 @@ class JobManagerActor extends InstrumentedActor {
           currentRunningJobs.decrementAndGet()
         }
       }
+
+    case KillJob(jobId: String) => {
+      jobContext.sparkContext.cancelJobGroup(jobId)
+      statusActor ! JobKilled(jobId, DateTime.now())
+    }
+
   }
 
   def startJobInternal(appName: String,
@@ -246,10 +258,10 @@ class JobManagerActor extends InstrumentedActor {
         jobQueue.enqueue((jobJarInfo, jobInfo, jobConfig, subscriber, jobContext, sparkEnv, rddManagerActor))
         statusActor ! JobQueued(jobId, contextName, DateTime.now(), jarInfoAndCp._1, jarInfoAndCp._2)
         sender ! JobQueued(jobId, contextName, DateTime.now(), jarInfoAndCp._1, jarInfoAndCp._2)
-        Future[Any](None)
+        Future[Any](None)(executionContext)
       } else {
         sender ! NoJobSlotsAvailable(maxRunningJobs)
-        Future[Any](None)
+        Future[Any](None)(executionContext)
       }
     } else {
       createJobFuture(jobJarInfo, jobInfo, jobConfig, subscriber, jobContext, sparkEnv, rddManagerActor)
@@ -260,9 +272,6 @@ class JobManagerActor extends InstrumentedActor {
   private def createJobFuture(jobJarInfo: JobJarInfo, jobInfo: JobInfo, jobConfig: Config,
                               subscriber: ActorRef, jobContext: ContextLike, sparkEnv: SparkEnv,
                               rddManagerActor: ActorRef): Future[Any] = {
-
-    // Use the SparkContext's ActorSystem threadpool for the futures, so we don't corrupt our own
-    implicit val executionContext = sparkEnv.actorSystem
 
     val jobId = jobInfo.jobId
     val constructor = jobJarInfo.constructor
@@ -299,6 +308,8 @@ class JobManagerActor extends InstrumentedActor {
           }
           case SparkJobValid => {
             statusActor ! JobStarted(jobId: String, contextName, jobInfo.startTime.get)
+            val sc = jobContext.sparkContext
+            sc.setJobGroup(jobId, s"Job group for $jobId and spark context ${sc.applicationId}", true)
             job.runJob(jobC, jobConfig)
           }
         }
@@ -312,7 +323,7 @@ class JobManagerActor extends InstrumentedActor {
       finally {
         org.slf4j.MDC.remove("jobId")
       }
-    }.andThen {
+    }(executionContext).andThen {
       case Success(result: Any) =>
         statusActor ! JobFinished(jobId, DateTime.now())
         resultActor ! JobResult(jobId, result)
@@ -320,7 +331,7 @@ class JobManagerActor extends InstrumentedActor {
         // If and only if job validation fails, JobErroredOut message is dropped silently in JobStatusActor.
         statusActor ! JobErroredOut(jobId, DateTime.now(), error)
         logger.warn("Exception from job " + jobId + ": ", error)
-    }.andThen {
+    }(executionContext).andThen {
       case _ =>
         // Make sure to decrement the count of running jobs when a job finishes, in both success and failure
         // cases.
@@ -328,7 +339,7 @@ class JobManagerActor extends InstrumentedActor {
         statusActor ! Unsubscribe(jobId, subscriber)
         currentRunningJobs.getAndDecrement()
         postEachJob()
-    }
+    }(executionContext)
   }
 
   // Use our classloader and a factory to create the SparkContext.  This ensures the SparkContext will use
@@ -366,5 +377,6 @@ class JobManagerActor extends InstrumentedActor {
   // Each one should be an URL (http, ftp, hdfs, local, or file). local URLs are local files
   // present on every node, whereas file:// will be assumed only present on driver node
   private def getSideJars(config: Config): Seq[String] =
-    Try(config.getStringList("dependent-jar-uris").asScala.toSeq).getOrElse(Nil)
+    Try(config.getStringList("dependent-jar-uris").asScala.toSeq).
+     orElse(Try(config.getString("dependent-jar-uris").split(",").toSeq)).getOrElse(Nil)
 }
