@@ -27,7 +27,7 @@ object Dependencies {
     yammerDeps
   ) ++ yodaDeps
 
-  val sparkVersion = sys.env.getOrElse("SPARK_VERSION", "1.3.1")
+  val sparkVersion = sys.env.getOrElse("SPARK_VERSION", "1.4.1")
   lazy val sparkDeps = Seq(
     "org.apache.spark" %% "spark-core" % sparkVersion % "provided" excludeAll(excludeNettyIo, excludeQQ),
     // Force netty version.  This avoids some Spark netty dependency problem.
@@ -60,6 +60,8 @@ object Dependencies {
   lazy val apiDeps = sparkDeps :+ typeSafeConfigDeps
 
   val repos = Seq(
+    "Applovin Repo" at "http://maven.dev-opscfd.com/nexus/content/repositories/applovin",
+    "Applovin Third Party Repo" at "http://maven.dev-opscfd.com/nexus/content/repositories/thirdparty",
     "Typesafe Repo" at "http://repo.typesafe.com/typesafe/releases/",
     "sonatype snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/",
     "spray repo" at "http://repo.spray.io"
