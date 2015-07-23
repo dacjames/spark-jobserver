@@ -58,7 +58,3 @@ fi
 
 # This needs to be exported for standalone mode so drivers can connect to the Spark cluster
 export SPARK_HOME
-
-# job server jar needs to appear first so its deps take higher priority
-# need to explicitly include app dir in classpath so logging configs can be found
-CLASSPATH="$appdir:$appdir/spark-job-server.jar:$($SPARK_HOME/bin/compute-classpath.sh)"
