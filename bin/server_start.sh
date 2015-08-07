@@ -21,6 +21,8 @@ GC_OPTS="-XX:+UseConcMarkSweepGC
 JAVA_OPTS="-XX:MaxDirectMemorySize=512M
            -XX:+HeapDumpOnOutOfMemoryError -Djava.net.preferIPv4Stack=true
            -Dspray.can.server.parsing.max-content-length=1000m
+           -Dspray.can.server.idle-timeout=infinite
+           -Dspray.can.server.request-timeout=infinite
            -Dcom.sun.management.jmxremote.port=9999
            -Dcom.sun.management.jmxremote.authenticate=false
            -Dcom.sun.management.jmxremote.ssl=false"
