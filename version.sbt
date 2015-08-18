@@ -1,1 +1,1 @@
-version in ThisBuild := "0.5.0-APPLOVIN"
+version in ThisBuild := "0.5.1-APPLOVIN"
