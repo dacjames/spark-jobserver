@@ -57,6 +57,8 @@ object Dependencies {
   lazy val apiDeps = sparkDeps :+ typeSafeConfigDeps
 
   val repos = Seq(
+    "Applovin Repo" at "http://maven.dev-opscfd.com/nexus/content/repositories/applovin",
+    "Applovin Third Party Repo" at "http://maven.dev-opscfd.com/nexus/content/repositories/thirdparty",
     "Typesafe Repo" at "http://repo.typesafe.com/typesafe/releases/",
     "sonatype snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/",
     "spray repo" at "http://repo.spray.io"
