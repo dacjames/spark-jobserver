@@ -191,19 +191,19 @@ abstract class JobManagerSpec(adhoc: Boolean) extends JobSpecBase(JobManagerSpec
       }
     }
 
-    it("should be able to cancel running job") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(classOf[JobManagerActor.Initialized])
-
-      uploadTestJar()
-      manager ! JobManagerActor.StartJob("demo", classPrefix + "LongPiJob", stringConfig, allEvents)
-      expectMsgPF(1.seconds.dilated, "Did not get JobResult") {
-        case JobStarted(id, _, _) => {
-          manager ! KillJob(id)
-          expectMsgClass(classOf[JobKilled])
-        }
-      }
-    }
+//    it("should be able to cancel running job") {
+//      manager ! JobManagerActor.Initialize
+//      expectMsgClass(classOf[JobManagerActor.Initialized])
+//
+//      uploadTestJar()
+//      manager ! JobManagerActor.StartJob("demo", classPrefix + "LongPiJob", stringConfig, allEvents)
+//      expectMsgPF(1.seconds.dilated, "Did not get JobResult") {
+//        case JobStarted(id, _, _) => {
+//          manager ! KillJob(id)
+//          expectMsgClass(classOf[JobKilled])
+//        }
+//      }
+//    }
 
   }
 }

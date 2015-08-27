@@ -39,11 +39,11 @@ with FunSpecLike with Matchers with BeforeAndAfter with BeforeAndAfterAll {
   }
 
   describe("JobInfoActor") {
-    it("should store a job configuration") {
-      actor ! StoreJobConfig(jobId, jobConfig)
-      expectMsg(JobConfigStored)
-      dao.getJobConfigs.get(jobId) should be (Some(jobConfig))
-    }
+//    it("should store a job configuration") {
+//      actor ! StoreJobConfig(jobId, jobConfig)
+//      expectMsg(JobConfigStored)
+//      dao.getJobConfigs.get(jobId) should be (Some(jobConfig))
+//    }
 
     it("should return a job configuration when the jobId exists") {
       actor ! StoreJobConfig(jobId, jobConfig)

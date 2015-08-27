@@ -13,7 +13,7 @@ class JobManagerActorSpec extends JobManagerSpec(adhoc = false) {
     dao = new InMemoryDAO
     daoActor = system.actorOf(JobDAOActor.props(dao))
     manager =
-      system.actorOf(JobManagerActor.props(dao, "test", JobManagerSpec.contextConfig, false))
+      system.actorOf(JobManagerActor.props())
     supervisor = TestProbe().ref
   }
 
