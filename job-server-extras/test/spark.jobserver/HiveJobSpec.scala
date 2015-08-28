@@ -5,6 +5,8 @@ import org.apache.spark.{SparkContext, SparkConf}
 import org.apache.spark.sql.catalyst.expressions.Row
 import org.apache.spark.sql.hive.test.TestHiveContext
 import spark.jobserver.context.{HiveContextLike, HiveContextFactory}
+import spark.jobserver.io.{JobDAOActor, JobInfo}
+
 
 class TestHiveContextFactory extends HiveContextFactory {
   override protected def contextFactory(conf: SparkConf): C =
@@ -30,13 +32,12 @@ class HiveJobSpec extends ExtrasJobSpecBase(HiveJobSpec.getNewSystem) {
 
   before {
     dao = new InMemoryDAO
-    manager =
-      system.actorOf(JobManagerActor.props(dao, "test", HiveJobSpec.contextConfig, false))
+    daoActor = system.actorOf(JobDAOActor.props(dao))
   }
 
   describe("Spark Hive Jobs") {
     it("should be able to create a Hive table, then query it using separate Hive-SQL jobs") {
-      manager ! JobManagerActor.Initialize
+      manager ! JobManagerActor.Initialize(daoActor, None, "ctx", HiveJobSpec.contextConfig, false, supervisor)
       expectMsgClass(30 seconds, classOf[JobManagerActor.Initialized])
 
       uploadTestJar()
