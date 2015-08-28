@@ -59,7 +59,8 @@ fi
 
 pidFilePath=$appdir/$PIDFILE
 
-if [ -f "$pidFilePath" ] && kill -0 $(cat "$pidFilePath"); then
+PIDFILE=$appdir/spark-jobserver.pid
+if [ -f "$PIDFILE" ] && kill -0 $(cat "$PIDFILE"); then
    echo 'Job server is already running'
    exit 1
 fi
