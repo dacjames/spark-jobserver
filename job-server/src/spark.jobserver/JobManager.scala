@@ -36,7 +36,7 @@ object JobManager {
     }
     logger.info("Starting JobManager named " + managerName + " with config {}",
       config.getConfig("spark").root.render())
-    
+
     val system = makeSystem(config)
     val jobManager = system.actorOf(Props(classOf[JobManagerActor]), managerName)
 
