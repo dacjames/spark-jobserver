@@ -30,13 +30,13 @@ object JobManager {
         println("Could not find configuration file " + configFile)
         sys.exit(1)
       }
-      ConfigFactory.parseFile(configFile).withFallback(defaultConfig)
+      ConfigFactory.parseFile(configFile).withFallback(defaultConfig).resolve()
     } else {
       defaultConfig
     }
     logger.info("Starting JobManager named " + managerName + " with config {}",
       config.getConfig("spark").root.render())
-
+    
     val system = makeSystem(config)
     val jobManager = system.actorOf(Props(classOf[JobManagerActor]), managerName)
 
