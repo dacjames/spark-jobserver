@@ -30,7 +30,7 @@ abstract class JobManagerSpec(adhoc: Boolean) extends JobSpecBase(JobManagerSpec
     it("should return error message if classPath does not match") {
       uploadTestJar()
       manager ! JobManagerActor.Initialize(daoActor, None, "ctx", JobManagerSpec.config, adhoc, supervisor)
-      expectMsgClass(classOf[JobManagerActor.Initialized])
+      expectMsgClass(Duration(6, SECONDS), classOf[JobManagerActor.Initialized])
       manager ! JobManagerActor.StartJob("demo", "no.such.class", emptyConfig, Set.empty[Class[_]])
       expectMsg(CommonMessages.NoSuchClass)
     }
@@ -192,7 +192,7 @@ abstract class JobManagerSpec(adhoc: Boolean) extends JobSpecBase(JobManagerSpec
     }
 
     it("should be able to cancel running job") {
-      manager ! JobManagerActor.Initialize
+      manager ! JobManagerActor.Initialize(daoActor, None, "ctx", JobManagerSpec.config, adhoc, supervisor)
       expectMsgClass(classOf[JobManagerActor.Initialized])
 
       uploadTestJar()

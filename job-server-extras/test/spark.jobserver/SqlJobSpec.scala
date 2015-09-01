@@ -30,14 +30,14 @@ class SqlJobSpec extends ExtrasJobSpecBase(SqlJobSpec.getNewSystem) {
   before {
     dao = new InMemoryDAO
     daoActor = system.actorOf(JobDAOActor.props(dao))
-    manager = system.actorOf(JobManagerActor.props())
+    manager =  system.actorOf(JobManagerActor.props())
     supervisor = TestProbe().ref
       //system.actorOf(JobManagerActor.props(dao, "test", SqlJobSpec.config, false))
   }
 
   describe("Spark SQL Jobs") {
     it("should be able to create and cache a table, then query it using separate SQL jobs") {
-      manager ! JobManagerActor.Initialize(daoActor, None, "ctx", sqlContextConfig, true, supervisor)
+      manager ! JobManagerActor.Initialize(daoActor, None, "test", sqlContextConfig, true, supervisor)
       expectMsgClass(classOf[JobManagerActor.Initialized])
 
       uploadTestJar()

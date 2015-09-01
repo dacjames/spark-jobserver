@@ -1,8 +1,10 @@
 package spark.jobserver
 
-import com.typesafe.config.ConfigFactory
+import com.typesafe.config.{ConfigValueFactory,ConfigFactory}
+import akka.testkit.TestProbe
 import spark.jobserver.context.StreamingContextFactory
-import spark.jobserver.io.JobInfo
+import spark.jobserver.io.{JobDAOActor, JobInfo}
+import spark.jobserver.context.StreamingContextFactory
 
 /**
  * Test for Straming Jobs.
@@ -28,14 +30,15 @@ class StreamingJobSpec extends JobSpecBase(StreamingJobSpec.getNewSystem) {
 
   before {
     dao = new InMemoryDAO
-    manager =
-      system.actorOf(JobManagerActor.props(dao, "test", StreamingJobSpec.contextConfig, false))
+    daoActor = system.actorOf(JobDAOActor.props(dao))
+    manager = system.actorOf(JobManagerActor.props())
+    supervisor = TestProbe().ref
   }
 
   describe("Spark Streaming Jobs") {
     it("should be able to process data usign Streaming jobs") {
-      manager ! JobManagerActor.Initialize
-      expectMsgClass(10 seconds, classOf[JobManagerActor.Initialized])
+      manager ! JobManagerActor.Initialize(daoActor, None, "test", StreamingJobSpec.contextConfig, false, supervisor) //streamingContextConfig, false, supervisor)
+      expectMsgClass(20 seconds, classOf[JobManagerActor.Initialized])
       uploadTestJar()
       manager ! JobManagerActor.StartJob("demo", streamingJob, emptyConfig, asyncEvents ++ errorEvents)
 
