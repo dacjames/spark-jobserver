@@ -24,4 +24,8 @@ MAIN="spark.jobserver.JobManager"
 
 . $appdir/setenv.sh
 
-exec java -cp $CLASSPATH $GC_OPTS $JAVA_OPTS $LOGGING_OPTS $CONFIG_OVERRIDES $MAIN $1 $2 $conffile 2>&1 &
+$SPARK_HOME/bin/spark-submit --class $MAIN --driver-memory $JOBSERVER_MEMORY \
+    --conf "spark.executor.extraJavaOptions=$LOGGING_OPTS" \
+    --driver-java-options "$GC_OPTS $JAVA_OPTS $LOGGING_OPTS $CONFIG_OVERRIDES" \
+    --verbose \
+    ${@:3} $appdir/spark-job-server.jar $1 $2 $conffile &>> $LOG_DIR/manager_start.log &
